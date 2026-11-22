@@ -27,6 +27,7 @@ import GeoAIMap from './components/GeoAIMap';
 import StudentLanding from './components/StudentLanding';
 import InstructorPortal from './components/InstructorPortal';
 import AdminPortal from './components/AdminPortal';
+import ProjectorScreen from './components/ProjectorScreen';
 
 const STEP_ICONS = [UserCheck, Users, MapPin, Award];
 
@@ -40,8 +41,83 @@ const PEER_EVAL_STORAGE_KEY = 'kku_geoai_tbl_peer_evals_v2_clean';
 const STICKERS_STORAGE_KEY = 'kku_geoai_tbl_stickers_v1';
 const CLASSES_STORAGE_KEY = 'kku_geoai_tbl_classes_v1';
 const SESSION_UI_STORAGE_KEY = 'kku_geoai_tbl_ui_session_v2_th';
+const PROJECTOR_STORAGE_KEY = 'kku_geoai_tbl_projector_v1';
+
+// Ensure every question in a module has a unique, deterministic non-empty id
+// so iRAT/tRAT selections never collide across Q3, Q4, etc. (even for imported/edited JSON)
+const normalizeModuleQuestions = (mod) => {
+  if (!mod || !Array.isArray(mod.questions)) return mod;
+  const seen = new Set();
+  let changed = false;
+  const questions = mod.questions.map((q, idx) => {
+    const rawId = typeof q?.id === 'string' ? q.id.trim() : '';
+    if (rawId && !seen.has(rawId)) {
+      seen.add(rawId);
+      return q;
+    }
+    changed = true;
+    const base = rawId ? `${rawId}-${idx + 1}` : `${mod.id || 'mod'}-q${idx + 1}`;
+    let candidate = base;
+    let suffix = 2;
+    while (seen.has(candidate)) {
+      candidate = `${base}-${suffix++}`;
+    }
+    seen.add(candidate);
+    return { ...q, id: candidate };
+  });
+  return changed ? { ...mod, questions } : mod;
+};
+
+const normalizeModules = (mods) =>
+  Array.isArray(mods) ? mods.map(normalizeModuleQuestions) : mods;
 
 export default function App() {
+  // Detect dedicated Main Screen Projector Window (?projector=1)
+  const isProjectorMode = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('projector') === '1';
+    } catch (e) {
+      return false;
+    }
+  }, []);
+
+  const [projectorState, setProjectorState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(PROJECTOR_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      mode: 'rat',
+      questionIndex: 0,
+      showAnswer: false,
+      showVotes: true,
+      showMap: false
+    };
+  });
+
+  const updateProjectorState = (patch) => {
+    setProjectorState((prev) => {
+      const next = { ...prev, ...patch };
+      try {
+        localStorage.setItem(PROJECTOR_STORAGE_KEY, JSON.stringify(next));
+      } catch (e) {}
+      pushToServer({ projectorState: next }, 'replace');
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === PROJECTOR_STORAGE_KEY && e.newValue) {
+        try {
+          setProjectorState(JSON.parse(e.newValue));
+        } catch (err) {}
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   // Load persisted UI navigation state so F5 / Browser Refresh stays on Instructor Page or Active Student Step
   const initialSession = useMemo(() => {
     try {
@@ -129,10 +205,10 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return normalizeModules(parsed);
       }
     } catch (e) {}
-    return MODULES;
+    return normalizeModules(MODULES);
   });
 
   useEffect(() => {
@@ -681,9 +757,10 @@ export default function App() {
 
   useEffect(() => {
     if (!currentModule) return;
-    const firstZone = currentModule.applicationCase?.spatialZones?.[0]?.id;
-    if (firstZone) setActiveZoneId(firstZone);
-  }, [currentModule]);
+    const zones = currentModule.applicationCase?.spatialZones || [];
+    if (zones.length === 0) return;
+    setActiveZoneId((prev) => (zones.some((z) => z.id === prev) ? prev : zones[0].id));
+  }, [currentModule?.id, currentModule?.applicationCase?.spatialZones]);
 
   // Per-student iRAT state
   const activeStudentId = activeStudent?.id || 'guest';
@@ -797,11 +874,12 @@ export default function App() {
 
   // ================= WEEKLY LESSON BUILDER HANDLERS =================
   const handleSaveModule = (updatedMod) => {
+    const normalized = normalizeModuleQuestions(updatedMod);
     setModules((prev) => {
-      const exists = prev.some((m) => m.id === updatedMod.id);
+      const exists = prev.some((m) => m.id === normalized.id);
       const next = exists
-        ? prev.map((m) => (m.id === updatedMod.id ? updatedMod : m))
-        : [...prev, updatedMod];
+        ? prev.map((m) => (m.id === normalized.id ? normalized : m))
+        : [...prev, normalized];
       pushToServer({ modules: next }, 'replace');
       return next;
     });
@@ -910,7 +988,7 @@ export default function App() {
     const orig = classModules.find((m) => m.id === modId);
     if (!orig) return;
     const nextWeekNum = classModules.length + 1;
-    const copy = JSON.parse(JSON.stringify(orig));
+    const copy = normalizeModuleQuestions(JSON.parse(JSON.stringify(orig)));
     copy.id = `week-${nextWeekNum}-${Date.now()}`;
     copy.classId = selectedClassId;
     copy.weekNumber = nextWeekNum;
@@ -1075,6 +1153,31 @@ export default function App() {
     [currentModule, currentTeam.id, tratScratchesByMod]
   );
 
+  const handleResetWeekScores = (modId) => {
+    if (!modId) return;
+    const omitMod = (prev) => {
+      const next = { ...prev };
+      delete next[modId];
+      return next;
+    };
+    setIratRecordsByMod(omitMod);
+    setTratScratchesByMod(omitMod);
+    setPeerEvalsByMod(omitMod);
+    setTeamCaseChoiceByMod(omitMod);
+    setTeamCaseRationaleByMod(omitMod);
+    setStickersByMod(omitMod);
+    setSimultaneousReveal(false);
+    setRevealExpertAnswer(false);
+    pushToServer(
+      {
+        resetModuleId: modId,
+        simultaneousReveal: false,
+        revealExpertAnswer: false
+      },
+      'replace'
+    );
+  };
+
   const handleClearAllSessionData = () => {
     setRoster([]);
     setWeeklyCheckins({});
@@ -1116,7 +1219,10 @@ export default function App() {
           setClasses(st.classes);
         }
         if (Array.isArray(st.modules) && st.modules.length > 0) {
-          setModules(st.modules);
+          const normalized = normalizeModules(st.modules);
+          setModules((prev) =>
+            JSON.stringify(prev) === JSON.stringify(normalized) ? prev : normalized
+          );
         }
         if (st.rostersByClass && typeof st.rostersByClass === 'object') {
           setRostersByClass(st.rostersByClass);
@@ -1154,8 +1260,13 @@ export default function App() {
         if (typeof st.revealExpertAnswer === 'boolean') {
           setRevealExpertAnswer(st.revealExpertAnswer);
         }
-        // Sync Instructor's active Class & Week to students so everyone is on the exact same session
-        if (role === 'student') {
+        if (st.projectorState && typeof st.projectorState === 'object') {
+          setProjectorState((prev) =>
+            JSON.stringify(prev) === JSON.stringify(st.projectorState) ? prev : st.projectorState
+          );
+        }
+        // Sync Instructor's active Class & Week to students & projector so everyone is on the exact same session
+        if (role === 'student' || isProjectorMode) {
           if (st.activeClassId) {
             setSelectedClassId(st.activeClassId);
           }
@@ -1175,6 +1286,28 @@ export default function App() {
       clearInterval(timer);
     };
   }, []);
+
+  // Dedicated Main Screen Projector View (?projector=1) — privacy-safe classroom discussion screen
+  if (isProjectorMode) {
+    return (
+      <ProjectorScreen
+        lang={lang}
+        onToggleLang={() => setLang(lang === 'en' ? 'th' : 'en')}
+        classInfo={classInfo}
+        currentModule={currentModule}
+        teams={activeTeams}
+        iratRecordsByMod={iratRecordsByMod}
+        tratScratchesByMod={tratScratchesByMod}
+        teamCaseChoiceByMod={teamCaseChoiceByMod}
+        teamCaseRationaleByMod={teamCaseRationaleByMod}
+        simultaneousReveal={simultaneousReveal}
+        revealExpertAnswer={revealExpertAnswer}
+        projectorState={projectorState}
+        onUpdateProjectorState={updateProjectorState}
+        serverSyncStatus={serverSyncStatus}
+      />
+    );
+  }
 
   // If in Student mode and not signed in yet, show the Ultra-Simple Student Check-In & Random Team Landing Page
   if (role === 'student' && !activeStudent) {
@@ -1556,14 +1689,20 @@ export default function App() {
             onDuplicateWeek={handleDuplicateWeek}
             onDeleteWeek={handleDeleteWeek}
             onImportModules={(imported) => {
-              const tagged = imported.map((m) => ({
-                ...m,
-                classId: selectedClassId
-              }));
-              setModules((prev) => [
-                ...prev.filter((m) => (m.classId || classes[0]?.id) !== selectedClassId),
-                ...tagged
-              ]);
+              const tagged = normalizeModules(
+                imported.map((m) => ({
+                  ...m,
+                  classId: selectedClassId
+                }))
+              );
+              setModules((prev) => {
+                const next = [
+                  ...prev.filter((m) => (m.classId || classes[0]?.id) !== selectedClassId),
+                  ...tagged
+                ];
+                pushToServer({ modules: next }, 'replace');
+                return next;
+              });
               setSelectedModuleId(tagged[0].id);
             }}
             teams={activeTeams}
@@ -1611,6 +1750,11 @@ export default function App() {
                 return next;
               });
             }}
+            iratRecordsByMod={iratRecordsByMod}
+            tratScratchesByMod={tratScratchesByMod}
+            projectorState={projectorState}
+            onUpdateProjectorState={updateProjectorState}
+            onResetWeekScores={handleResetWeekScores}
             onClearAllSessionData={handleClearAllSessionData}
             onSwitchToStudentView={() => setRole('student')}
             onOpenAdminPortal={() => setRole('admin')}

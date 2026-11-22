@@ -193,7 +193,7 @@ export default function LessonBuilder({
 
   // Add Question (blank or from SHEE template)
   const addQuestion = (tpl = null) => {
-    const nextQId = `q-${Date.now()}`;
+    const nextQId = `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     if (tpl) {
       setDraft((prev) => ({
         ...prev,

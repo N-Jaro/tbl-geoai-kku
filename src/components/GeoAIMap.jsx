@@ -9,6 +9,10 @@ export default function GeoAIMap({ zones, lang, activeZoneId, onSelectZone }) {
   const [basemap, setBasemap] = useState('osm'); // 'osm' | 'topo' | 'dark'
   const [showSarOverlay, setShowSarOverlay] = useState(true);
   const tileLayerRef = useRef(null);
+  const lastFlyTargetRef = useRef(null);
+  const onSelectZoneRef = useRef(onSelectZone);
+  onSelectZoneRef.current = onSelectZone;
+  const zonesSignature = JSON.stringify(zones);
 
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
@@ -64,7 +68,7 @@ export default function GeoAIMap({ zones, lang, activeZoneId, onSelectZone }) {
         });
 
         circle.on('click', () => {
-          onSelectZone(zone.id);
+          onSelectZoneRef.current(zone.id);
         });
 
         circle.bindTooltip(
@@ -96,19 +100,21 @@ export default function GeoAIMap({ zones, lang, activeZoneId, onSelectZone }) {
       });
 
       const marker = L.marker(zone.coords, { icon: badgeIcon });
-      marker.on('click', () => onSelectZone(zone.id));
+      marker.on('click', () => onSelectZoneRef.current(zone.id));
       marker.addTo(group);
     });
-  }, [zones, lang, activeZoneId, showSarOverlay, onSelectZone]);
+  }, [zonesSignature, lang, activeZoneId, showSarOverlay]);
 
-  // Pan to active zone when selected
+  // Pan to active zone only when selection (or target coords) actually changes
   useEffect(() => {
     if (!mapInstanceRef.current || !activeZoneId) return;
     const target = zones.find((z) => z.id === activeZoneId);
-    if (target) {
-      mapInstanceRef.current.flyTo(target.coords, 11, { duration: 0.8 });
-    }
-  }, [activeZoneId, zones]);
+    if (!target) return;
+    const flyKey = `${activeZoneId}:${target.coords[0]},${target.coords[1]}`;
+    if (lastFlyTargetRef.current === flyKey) return;
+    lastFlyTargetRef.current = flyKey;
+    mapInstanceRef.current.flyTo(target.coords, 11, { duration: 0.8 });
+  }, [activeZoneId, zonesSignature]);
 
   const activeZone = zones.find((z) => z.id === activeZoneId) || zones[0];
 

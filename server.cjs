@@ -714,6 +714,34 @@ async function handlePostSync(req, res) {
           await savePeerEvalsToRelational(conn, updates.peerEvalsByMod, mode);
         }
 
+        // Single-week score reset (keeps roster, teams, modules, and all other weeks intact)
+        if (typeof updates.resetModuleId === 'string' && updates.resetModuleId.trim()) {
+          const rmId = updates.resetModuleId.trim();
+          await conn.query('DELETE FROM tbl_irat_submissions WHERE module_id = ?', [rmId]);
+          await conn.query('DELETE FROM tbl_trat_scratches WHERE module_id = ?', [rmId]);
+          await conn.query('DELETE FROM tbl_peer_evaluations WHERE module_id = ?', [rmId]);
+          for (const modKey of ['teamCaseChoiceByMod', 'teamCaseRationaleByMod', 'stickersByMod']) {
+            const [rows] = await conn.query(
+              'SELECT store_val FROM tbl_kv_store WHERE store_key = ? FOR UPDATE',
+              [modKey]
+            );
+            if (rows.length > 0 && rows[0].store_val) {
+              try {
+                const obj = JSON.parse(rows[0].store_val);
+                if (obj && typeof obj === 'object' && rmId in obj) {
+                  delete obj[rmId];
+                  await conn.query(
+                    `INSERT INTO tbl_kv_store (store_key, store_val)
+                     VALUES (?, ?)
+                     ON DUPLICATE KEY UPDATE store_val = VALUES(store_val)`,
+                    [modKey, JSON.stringify(obj)]
+                  );
+                }
+              } catch (e) {}
+            }
+          }
+        }
+
         // Lightweight stage flags stored in tbl_kv_store (supports deep merge for teamCaseChoiceByMod, teamCaseRationaleByMod & stickersByMod)
         for (const flagKey of [
           'unlockedSteps',
@@ -723,7 +751,8 @@ async function handlePostSync(req, res) {
           'teamCaseRationaleByMod',
           'stickersByMod',
           'activeClassId',
-          'activeModuleId'
+          'activeModuleId',
+          'projectorState'
         ]) {
           if (flagKey in updates) {
             let finalFlagVal = updates[flagKey];
@@ -774,7 +803,23 @@ async function handlePostSync(req, res) {
       }
     } else {
       const current = readFallbackState();
-      Object.assign(current, updates);
+      if (typeof updates.resetModuleId === 'string' && updates.resetModuleId.trim()) {
+        const rmId = updates.resetModuleId.trim();
+        for (const k of [
+          'iratRecordsByMod',
+          'tratScratchesByMod',
+          'peerEvalsByMod',
+          'teamCaseChoiceByMod',
+          'teamCaseRationaleByMod',
+          'stickersByMod'
+        ]) {
+          if (current[k] && typeof current[k] === 'object') {
+            delete current[k][rmId];
+          }
+        }
+      }
+      const { resetModuleId, ...restUpdates } = updates;
+      Object.assign(current, restUpdates);
       writeFallbackState(current);
       return res.json({ ok: true, engine: 'node-file' });
     }

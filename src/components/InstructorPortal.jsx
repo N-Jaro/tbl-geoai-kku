@@ -24,7 +24,9 @@ import {
   BookOpen,
   Settings,
   UserPlus,
-  Search
+  Search,
+  RotateCcw,
+  ExternalLink
 } from 'lucide-react';
 import LessonBuilder from './LessonBuilder';
 
@@ -72,6 +74,11 @@ export default function InstructorPortal({
   onToggleRevealExpertAnswer,
   unlockedSteps,
   onSetUnlockedSteps,
+  iratRecordsByMod = {},
+  tratScratchesByMod = {},
+  projectorState,
+  onUpdateProjectorState,
+  onResetWeekScores,
   onClearAllSessionData,
   onSwitchToStudentView,
   onOpenAdminPortal
@@ -128,6 +135,10 @@ export default function InstructorPortal({
   const [clearConfirmWord, setClearConfirmWord] = useState('');
   const [clearPinConfirm, setClearPinConfirm] = useState('');
   const [clearError, setClearError] = useState('');
+
+  // Per-Week Score Reset Modal & Toast State
+  const [resetWeekModalOpen, setResetWeekModalOpen] = useState(false);
+  const [weekResetToast, setWeekResetToast] = useState(false);
 
   const currentModule = modules.find((m) => m.id === selectedModuleId) || modules[0];
   const moduleCheckins = weeklyCheckins[currentModule?.id] || {};
@@ -704,7 +715,21 @@ export default function InstructorPortal({
           </div>
 
           {/* Right Quick Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const url = `${window.location.origin}${window.location.pathname}?projector=1`;
+                window.open(url, 'tbl_projector_screen', 'noopener');
+              }}
+              className="py-1.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 shadow-sm transition"
+              title="Open dedicated main-screen projector page in a new window"
+            >
+              <Tv className="w-3.5 h-3.5" />
+              {lang === 'en' ? 'Open Projector' : 'เปิดจอโปรเจคเตอร์'}
+              <ExternalLink className="w-3 h-3" />
+            </button>
+
             <button
               type="button"
               onClick={handleExportMasterCsv}
@@ -1001,6 +1026,205 @@ export default function InstructorPortal({
                 )}
               </div>
             </div>
+
+            {/* QUESTIONS TO DISCUSS — MAIN SCREEN PROJECTOR REMOTE CONTROL */}
+            {onUpdateProjectorState && currentModule?.questions?.length > 0 && (
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Tv className="w-4 h-4 text-kku-terracotta" />
+                      <h3 className="text-sm font-extrabold text-slate-900">
+                        {lang === 'en'
+                          ? 'Main Screen Discussion Remote (Projector Control)'
+                          : 'ควบคุมหน้าจอโปรเจคเตอร์และเลือกข้อสอบอภิปราย'}
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {lang === 'en'
+                        ? 'Click any question below to push it live to the Projector Screen. Questions with <70% iRAT accuracy are flagged for discussion.'
+                        : 'คลิกปุ่ม "ขึ้นจอ Q#" เพื่อส่งข้อสอบขึ้นหน้าจอโปรเจคเตอร์ทันที ข้อที่ได้คะแนน iRAT ต่ำกว่า 70% จะถูกทำเครื่องหมายแนะนำให้อภิปราย'}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateProjectorState({ showVotes: !(projectorState?.showVotes !== false) })
+                      }
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition ${
+                        projectorState?.showVotes !== false
+                          ? 'bg-sky-50 border-sky-300 text-sky-800'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {projectorState?.showVotes !== false
+                        ? lang === 'en'
+                          ? 'Votes Bar: ON'
+                          : 'กราฟโหวต: เปิด'
+                        : lang === 'en'
+                        ? 'Votes Bar: OFF'
+                        : 'กราฟโหวต: ซ่อน'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateProjectorState({ showAnswer: !projectorState?.showAnswer })
+                      }
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition ${
+                        projectorState?.showAnswer
+                          ? 'bg-emerald-600 border-emerald-500 text-white'
+                          : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+                      }`}
+                    >
+                      {projectorState?.showAnswer
+                        ? lang === 'en'
+                          ? '★ Answer Shown'
+                          : '★ เปิดเฉลยอยู่'
+                        : lang === 'en'
+                        ? 'Reveal Answer ★'
+                        : 'เปิดเฉลยบนจอ ★'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onUpdateProjectorState({ mode: 'case' })}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition ${
+                        projectorState?.mode === 'case'
+                          ? 'bg-slate-900 border-slate-900 text-amber-300'
+                          : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {lang === 'en' ? 'Project 4S Case' : 'ขึ้นจอโจทย์ 4S'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}${window.location.pathname}?projector=1`;
+                        window.open(url, 'tbl_projector_screen', 'noopener');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-kku-terracotta hover:bg-kku-dark text-white font-extrabold text-xs flex items-center gap-1.5 shadow-sm transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      {lang === 'en' ? 'Open Projector Tab' : 'เปิดแท็บโปรเจคเตอร์'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                  {currentModule.questions.map((q, idx) => {
+                    const modIrat = iratRecordsByMod?.[currentModule.id] || {};
+                    const modTrat = tratScratchesByMod?.[currentModule.id] || {};
+                    const validKeys = [q.correct, ...(q.secondaryStars || [])];
+                    let votes = 0;
+                    let correct = 0;
+                    Object.values(modIrat).forEach((rec) => {
+                      const alloc = rec?.allocations?.[q.id] || {};
+                      const picked = Object.keys(alloc).find((k) => alloc[k] > 0);
+                      if (picked) {
+                        votes += 1;
+                        if (validKeys.includes(picked)) correct += 1;
+                      }
+                    });
+                    const pct = votes > 0 ? Math.round((correct / votes) * 100) : null;
+                    let tratFirstTry = 0;
+                    let tratTotal = 0;
+                    Object.values(modTrat).forEach((tMap) => {
+                      const sc = tMap?.[q.id] || [];
+                      const sIdx = sc.findIndex((k) => validKeys.includes(k));
+                      if (sIdx !== -1) {
+                        tratTotal += 1;
+                        if (sIdx === 0) tratFirstTry += 1;
+                      }
+                    });
+                    const needsDiscuss = pct !== null && pct < 70;
+                    const isLiveOnProjector =
+                      projectorState?.mode !== 'case' &&
+                      (Number(projectorState?.questionIndex) || 0) === idx;
+
+                    return (
+                      <div
+                        key={q.id}
+                        className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 transition ${
+                          isLiveOnProjector
+                            ? 'bg-kku-light/70 border-kku-terracotta ring-2 ring-kku-terracotta/20'
+                            : needsDiscuss
+                            ? 'bg-amber-50/70 border-amber-300'
+                            : 'bg-slate-50 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-900 text-amber-400 font-extrabold text-[11px]">
+                              Q{idx + 1}
+                            </span>
+                            {pct !== null ? (
+                              <span
+                                className={`px-2 py-0.5 rounded-md text-[11px] font-extrabold ${
+                                  pct < 50
+                                    ? 'bg-rose-100 text-rose-700'
+                                    : pct < 70
+                                    ? 'bg-amber-200 text-amber-900'
+                                    : 'bg-emerald-100 text-emerald-800'
+                                }`}
+                              >
+                                iRAT {pct}% ({correct}/{votes})
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-bold text-slate-400">
+                                iRAT: —
+                              </span>
+                            )}
+                            {tratTotal > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-sky-100 text-sky-800 text-[11px] font-extrabold">
+                                tRAT ★1st: {tratFirstTry}/{tratTotal}
+                              </span>
+                            )}
+                            {needsDiscuss && (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-extrabold">
+                                {lang === 'en' ? 'Discuss!' : 'ควรอภิปราย'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-slate-700 font-semibold line-clamp-2 leading-relaxed">
+                          {q.stem?.[lang] || q.stem?.en}
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateProjectorState({
+                              mode: 'rat',
+                              questionIndex: idx,
+                              showAnswer: false
+                            })
+                          }
+                          className={`w-full py-1.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition ${
+                            isLiveOnProjector
+                              ? 'bg-kku-terracotta text-white shadow-sm'
+                              : 'bg-white hover:bg-slate-900 hover:text-white text-slate-800 border border-slate-300'
+                          }`}
+                        >
+                          <Tv className="w-3.5 h-3.5" />
+                          {isLiveOnProjector
+                            ? lang === 'en'
+                              ? `Live on Projector (Q${idx + 1})`
+                              : `กำลังแสดงบนจอ (Q${idx + 1})`
+                            : lang === 'en'
+                            ? `Project Q${idx + 1} on Screen`
+                            : `ขึ้นจออภิปราย Q${idx + 1}`}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* PROJECTOR-FRIENDLY 4S CHOICE DISTRIBUTION & DEBATE SUMMARY BAR (WHEN REVEALED) */}
             {simultaneousReveal && currentModule?.applicationCase?.specificChoices && (
@@ -1315,8 +1539,30 @@ export default function InstructorPortal({
                       ? `Export All ${modules.length} Weeks Master Gradebook (.CSV)`
                       : `ดาวน์โหลดคะแนนรวมทุกสัปดาห์เข้า Excel (.CSV)`}
                   </button>
+
+                  {onResetWeekScores && (
+                    <button
+                      type="button"
+                      onClick={() => setResetWeekModalOpen(true)}
+                      className="px-3.5 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 font-extrabold text-xs flex items-center gap-1.5 shadow-sm transition"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      {lang === 'en'
+                        ? `Reset ${currentModule.code} Scores`
+                        : `รีเซ็ตคะแนน ${currentModule.code}`}
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {weekResetToast && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-extrabold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  {lang === 'en'
+                    ? `Scores for ${currentModule.code} cleared! Roster, teams, and other weeks are intact.`
+                    : `รีเซ็ตคะแนนของ ${currentModule.code} เรียบร้อยแล้ว! รายชื่อนักศึกษา กลุ่ม และสัปดาห์อื่นยังคงอยู่ครบถ้วน`}
+                </div>
+              )}
 
               {/* Automatic TBL Grading Weight Formula Bar */}
               <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -2100,6 +2346,35 @@ export default function InstructorPortal({
                 )}
               </div>
 
+              {/* Reset Current Week Scores Only (Safe for pre-class testing) */}
+              {onResetWeekScores && (
+                <div className="bg-amber-50/80 rounded-3xl p-6 border border-amber-200 space-y-3">
+                  <div className="flex items-center gap-2 text-amber-900">
+                    <RotateCcw className="w-4 h-4 shrink-0" />
+                    <h3 className="text-sm font-extrabold">
+                      {lang === 'en'
+                        ? `Reset ${currentModule.code} Scores Only`
+                        : `รีเซ็ตคะแนนเฉพาะ ${currentModule.code}`}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-amber-800 leading-relaxed">
+                    {lang === 'en'
+                      ? `Clear iRAT, tRAT, 4S Case, Peer Eval, and Bonus Stickers for ${currentModule.code} only. Keeps enrolled students, teams, lesson questions, and all other weeks intact.`
+                      : `ล้างคะแนน iRAT, tRAT, โจทย์ 4S, ประเมินเพื่อน และสติกเกอร์เฉพาะ ${currentModule.code} เท่านั้น (เก็บรายชื่อนักศึกษา กลุ่ม ข้อสอบ และสัปดาห์อื่นไว้ครบถ้วน เหมาะสำหรับล้างผลหลังทดสอบก่อนสอนจริง)`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setResetWeekModalOpen(true)}
+                    className="w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-sm transition"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    {lang === 'en'
+                      ? `Reset ${currentModule.code} Scores...`
+                      : `รีเซ็ตคะแนนเฉพาะ ${currentModule.code}...`}
+                  </button>
+                </div>
+              )}
+
               {/* Danger Zone: Clear All Data */}
               {onClearAllSessionData && (
                 <div className="bg-rose-50/70 rounded-3xl p-6 border border-rose-200 space-y-3">
@@ -2135,6 +2410,65 @@ export default function InstructorPortal({
           </div>
         )}
       </section>
+
+      {/* ================= PER-WEEK SCORE RESET CONFIRMATION MODAL ================= */}
+      {resetWeekModalOpen && onResetWeekScores && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full border-2 border-amber-200 shadow-2xl overflow-hidden">
+            <div className="bg-amber-600 text-white px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <RotateCcw className="w-5 h-5 shrink-0" />
+                <h3 className="font-extrabold text-base">
+                  {lang === 'en'
+                    ? `Reset Scores for ${currentModule.code}?`
+                    : `ยืนยันรีเซ็ตคะแนนของ ${currentModule.code}?`}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetWeekModalOpen(false)}
+                className="p-1 rounded-lg bg-white/15 hover:bg-white/25 text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-sm text-slate-700">
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-950">
+                {currentModule.code}: {currentModule.title[lang]}
+              </div>
+              <p className="text-xs leading-relaxed text-slate-600">
+                {lang === 'en'
+                  ? 'This will clear iRAT answers, tRAT scratches, 4S team case cards & rationales, Peer Evaluations, and Bonus Stickers for this week ONLY. Your student roster, team assignments, lesson questions, and all other weeks will remain untouched.'
+                  : 'ระบบจะล้างคำตอบ iRAT, บัตรขูด tRAT, ป้ายคำตอบ/เหตุผล 4S, ผลประเมินเพื่อน และสติกเกอร์เฉพาะสัปดาห์นี้เท่านั้น รายชื่อนักศึกษา กลุ่ม ข้อสอบ และคะแนนของสัปดาห์อื่นจะไม่ถูกลบ'}
+              </p>
+
+              <div className="grid grid-cols-2 gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResetWeekModalOpen(false)}
+                  className="py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                >
+                  {lang === 'en' ? 'Cancel' : 'ยกเลิก'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onResetWeekScores(currentModule.id);
+                    setResetWeekModalOpen(false);
+                    setWeekResetToast(true);
+                    setTimeout(() => setWeekResetToast(false), 4000);
+                  }}
+                  className="py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow flex items-center justify-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {lang === 'en' ? `Reset ${currentModule.code}` : `ยืนยันรีเซ็ต ${currentModule.code}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ================= STRICT CLEAR-ALL SAFETY CONFIRMATION MODAL ================= */}
       {clearModalOpen && (

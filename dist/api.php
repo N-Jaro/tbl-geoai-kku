@@ -609,13 +609,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             save_peer_evals_relational($pdo, $updates['peerEvalsByMod'], $mode);
         }
 
+        // Single-week score reset (keeps roster, teams, modules, and all other weeks intact)
+        if (!empty($updates['resetModuleId']) && is_string($updates['resetModuleId'])) {
+            $rmId = $updates['resetModuleId'];
+            $pdo->prepare("DELETE FROM tbl_irat_submissions WHERE module_id = ?")->execute([$rmId]);
+            $pdo->prepare("DELETE FROM tbl_trat_scratches WHERE module_id = ?")->execute([$rmId]);
+            $pdo->prepare("DELETE FROM tbl_peer_evaluations WHERE module_id = ?")->execute([$rmId]);
+
+            $selKv = $pdo->prepare("SELECT store_val FROM tbl_kv_store WHERE store_key = ? FOR UPDATE");
+            $updKv = $pdo->prepare("
+                INSERT INTO tbl_kv_store (store_key, store_val)
+                VALUES (?, ?)
+                ON DUPLICATE KEY UPDATE store_val = VALUES(store_val)
+            ");
+            foreach (['teamCaseChoiceByMod', 'teamCaseRationaleByMod', 'stickersByMod'] as $modKey) {
+                $selKv->execute([$modKey]);
+                $kvRow = $selKv->fetch();
+                if ($kvRow && !empty($kvRow['store_val'])) {
+                    $decoded = json_decode($kvRow['store_val'], true);
+                    if (is_array($decoded) && array_key_exists($rmId, $decoded)) {
+                        unset($decoded[$rmId]);
+                        $updKv->execute([
+                            $modKey,
+                            json_encode(empty($decoded) ? new stdClass() : $decoded, JSON_UNESCAPED_UNICODE)
+                        ]);
+                    }
+                }
+            }
+        }
+
         $selectFlagStmt = $pdo->prepare("SELECT store_val FROM tbl_kv_store WHERE store_key = ? FOR UPDATE");
         $flagStmt = $pdo->prepare("
             INSERT INTO tbl_kv_store (store_key, store_val)
             VALUES (?, ?)
             ON DUPLICATE KEY UPDATE store_val = VALUES(store_val)
         ");
-        foreach (['unlockedSteps', 'simultaneousReveal', 'revealExpertAnswer', 'teamCaseChoiceByMod', 'teamCaseRationaleByMod', 'stickersByMod', 'activeClassId', 'activeModuleId'] as $flagKey) {
+        foreach (['unlockedSteps', 'simultaneousReveal', 'revealExpertAnswer', 'teamCaseChoiceByMod', 'teamCaseRationaleByMod', 'stickersByMod', 'activeClassId', 'activeModuleId', 'projectorState'] as $flagKey) {
             if (array_key_exists($flagKey, $updates)) {
                 $finalFlagVal = $updates[$flagKey];
                 if ($mode === 'merge' && ($flagKey === 'teamCaseChoiceByMod' || $flagKey === 'teamCaseRationaleByMod' || $flagKey === 'stickersByMod') && is_array($finalFlagVal)) {
