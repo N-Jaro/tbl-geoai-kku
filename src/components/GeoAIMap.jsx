@@ -162,14 +162,14 @@ export default function GeoAIMap({ zones, lang, activeZoneId, onSelectZone }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12">
+      <div className="grid grid-cols-1 md:grid-cols-12">
         {/* Map Canvas */}
-        <div className="lg:col-span-8 relative min-h-[380px]">
-          <div ref={mapContainerRef} className="w-full h-[380px] lg:h-full min-h-[380px]" />
+        <div className="md:col-span-7 lg:col-span-8 relative min-h-[340px] md:min-h-[380px]">
+          <div ref={mapContainerRef} className="w-full h-[340px] md:h-full min-h-[340px] md:min-h-[380px]" />
         </div>
 
         {/* Zone Telemetry Inspector */}
-        <div className="lg:col-span-4 p-4 bg-slate-50 border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col justify-between">
+        <div className="md:col-span-5 lg:col-span-4 p-4 bg-slate-50 border-t md:border-t-0 md:border-l border-slate-200 flex flex-col justify-between">
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
               {lang === 'en' ? 'Click a Zone to Inspect Telemetry' : 'คลิกเลือกโซนเพื่อตรวจค่าสัญญาณดาวเทียม'}

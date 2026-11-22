@@ -117,19 +117,14 @@ export default function StudentLanding({
       <header className="relative z-10 border-b border-white/10 bg-slate-950/60 backdrop-blur-md">
         <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-kku-terracotta to-amber-600 flex items-center justify-center font-extrabold text-sm shadow-lg shadow-kku-terracotta/30 border border-white/20">
-              TBL
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base tracking-tight text-white">
-                  {lang === 'en' ? 'TBL Classroom Studio' : 'ระบบห้องเรียน TBL Studio'}
-                </span>
-                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30 text-[10px] font-bold uppercase tracking-wider">
-                  {lang === 'en' ? 'Interactive Classroom' : 'ห้องเรียนเชิงรุก'}
-                </span>
-              </div>
-            </div>
+            <img
+              src="./logo.png"
+              alt="TBL Studio"
+              className="h-9 sm:h-10 w-auto object-contain select-none"
+            />
+            <span className="hidden sm:inline-block px-2.5 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30 text-[10px] font-bold uppercase tracking-wider">
+              {lang === 'en' ? 'Interactive Classroom' : 'ห้องเรียนเชิงรุก'}
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -484,7 +479,7 @@ export default function StudentLanding({
       <footer className="relative z-10 border-t border-white/10 bg-slate-950/60 py-4 px-6">
         <div className="max-w-6xl w-full mx-auto flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
           <span>
-            © 2026 {classInfo?.courseName || 'Team-Based Learning Platform'}. A{' '}
+            © 2026 TBL Studio. A{' '}
             <span className="font-bold text-amber-300">nattapon.io</span> project.
           </span>
           <span>iRAT • IF-AT Scratch tRAT • 4S Simultaneous Case • 0–10 Peer Rating</span>

@@ -1080,120 +1080,127 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col text-slate-900">
-      {/* LAYER 1: GLOBAL PLATFORM HEADER (Brand & Platform Controls Only) */}
+      {/* LAYER 1: GLOBAL PLATFORM HEADER (Responsive for iPad Portrait & Mobile) */}
       <header className="bg-slate-950/95 backdrop-blur-md text-white border-b border-white/10 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 min-h-[4rem] py-2 flex flex-wrap items-center justify-between gap-2">
           {/* Platform Brand */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-kku-terracotta to-amber-600 flex items-center justify-center font-extrabold text-sm tracking-tight shadow-md shadow-kku-terracotta/30 border border-white/20">
-              TBL
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm sm:text-base tracking-tight">
-                  {lang === 'en' ? 'TBL Classroom Studio' : 'ระบบห้องเรียน TBL Studio'}
-                </span>
-                <span className="hidden md:inline-block px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/30 text-[10px] font-bold text-amber-300 tracking-wider">
-                  nattapon.io
-                </span>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <img
+              src="./logo.png"
+              alt="TBL Studio"
+              className="h-8 sm:h-9 md:h-10 w-auto object-contain select-none"
+            />
+            <div className="flex items-center gap-1.5">
+              <span className="hidden lg:inline-block px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/30 text-[10px] font-bold text-amber-300 tracking-wider">
+                nattapon.io
+              </span>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  serverSyncStatus === 'live'
+                    ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                }`}
+                title={
+                  serverSyncStatus === 'live'
+                    ? 'Connected to MySQL Database (nattapon_tbl) — All devices sync in real time'
+                    : 'Local Browser Mode'
+                }
+              >
                 <span
-                  className={`hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  className={`w-1.5 h-1.5 rounded-full ${
                     serverSyncStatus === 'live'
-                      ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
-                      : 'bg-slate-800 border-slate-700 text-slate-400'
+                      ? 'bg-emerald-400 animate-pulse'
+                      : 'bg-slate-500'
                   }`}
-                  title={
-                    serverSyncStatus === 'live'
-                      ? 'Connected to MySQL Database (nattapon_tbl) — All devices sync in real time'
-                      : 'Local Browser Mode'
-                  }
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      serverSyncStatus === 'live'
-                        ? 'bg-emerald-400 animate-pulse'
-                        : 'bg-slate-500'
-                    }`}
-                  />
-                  {serverSyncStatus === 'live' ? 'Live DB Sync' : 'Local Mode'}
+                />
+                <span className="hidden sm:inline">
+                  {serverSyncStatus === 'live' ? 'Live DB' : 'Local'}
                 </span>
-              </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">
-                {lang === 'en'
-                  ? 'Active Team-Based Learning & Collaborative Decision System'
-                  : 'ระบบจัดการเรียนรู้แบบเป็นทีมเชิงรุกและตัดสินใจร่วมกัน'}
-              </p>
+              </span>
             </div>
           </div>
 
           {/* Right Global Controls: Active Student Badge / Role Switch / Language */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {role === 'student' && activeStudent && (
-              <div className="flex items-center gap-2 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-800 text-xs shadow-inner">
+              <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-900/90 px-2.5 py-1.5 rounded-xl border border-slate-800 text-xs shadow-inner">
                 {isCurrentUserTeamRep && (
-                  <span className="px-2 py-0.5 rounded-md bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 font-extrabold text-[10px] flex items-center gap-1 shadow-sm">
+                  <span className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 font-extrabold text-[10px] flex items-center gap-1 shadow-sm">
                     <Crown className="w-3 h-3" /> Leader
                   </span>
                 )}
-                <span className="font-bold text-slate-100">{activeStudent.name}</span>
-                <span className="font-mono text-amber-300 hidden md:inline font-semibold">
+                <span className="font-bold text-slate-100 truncate max-w-[130px] sm:max-w-[180px]">
+                  {activeStudent.name}
+                </span>
+                <span className="font-mono text-amber-300 hidden xl:inline font-semibold">
                   ({activeStudent.id})
                 </span>
                 <button
                   type="button"
                   onClick={() => setActiveStudent(null)}
-                  className="ml-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-rose-500/20 hover:text-rose-200 border border-slate-700 hover:border-rose-400/30 text-[11px] font-bold text-slate-300 flex items-center gap-1 transition"
+                  className="ml-0.5 px-2 py-1 rounded-lg bg-slate-800 hover:bg-rose-500/20 hover:text-rose-200 border border-slate-700 hover:border-rose-400/30 text-[11px] font-bold text-slate-300 flex items-center gap-1 transition"
                   title="Switch Student ID"
                 >
                   <LogOut className="w-3 h-3" />
-                  {lang === 'en' ? 'Switch ID' : 'สลับรหัส'}
+                  <span className="hidden sm:inline">
+                    {lang === 'en' ? 'Switch ID' : 'สลับรหัส'}
+                  </span>
                 </button>
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => setRole(role === 'instructor' ? 'student' : 'instructor')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition shadow-sm ${
-                role === 'instructor'
-                  ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 border-amber-300 font-extrabold'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
-              }`}
-            >
-              <Tv className="w-3.5 h-3.5 text-amber-400" />
-              {role === 'instructor'
-                ? lang === 'en'
-                  ? 'Exit Instructor'
-                  : 'ออกจากโหมดอาจารย์'
-                : lang === 'en'
-                ? 'Instructor'
-                : 'สำหรับอาจารย์'}
-            </button>
+            {/* Hide Instructor & Admin buttons when a student is actively taking a quiz unless already in instructor/admin mode, or collapse them to compact icons on iPad portrait */}
+            {(!activeStudent || role !== 'student') && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setRole(role === 'instructor' ? 'student' : 'instructor')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition shadow-sm ${
+                    role === 'instructor'
+                      ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 border-amber-300 font-extrabold'
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+                  }`}
+                >
+                  <Tv className="w-3.5 h-3.5 text-amber-400" />
+                  <span>
+                    {role === 'instructor'
+                      ? lang === 'en'
+                        ? 'Exit Instructor'
+                        : 'ออกโหมดอาจารย์'
+                      : lang === 'en'
+                      ? 'Instructor'
+                      : 'อาจารย์'}
+                  </span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setRole(role === 'admin' ? 'student' : 'admin')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition shadow-sm ${
-                role === 'admin'
-                  ? 'bg-indigo-500 hover:bg-indigo-400 text-white border-indigo-400 font-extrabold'
-                  : 'bg-slate-900 hover:bg-slate-800 text-indigo-200 border-slate-700'
-              }`}
-              title="System Admin Portal"
-            >
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />
-              {role === 'admin'
-                ? lang === 'en'
-                  ? 'Exit Admin'
-                  : 'ออกโหมด Admin'
-                : lang === 'en'
-                ? 'Admin'
-                : 'ผู้ดูแลระบบ'}
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setRole(role === 'admin' ? 'student' : 'admin')}
+                  className={`px-2.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition shadow-sm ${
+                    role === 'admin'
+                      ? 'bg-indigo-500 hover:bg-indigo-400 text-white border-indigo-400 font-extrabold'
+                      : 'bg-slate-900 hover:bg-slate-800 text-indigo-200 border-slate-700'
+                  }`}
+                  title="System Admin Portal"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />
+                  <span className="hidden sm:inline">
+                    {role === 'admin'
+                      ? lang === 'en'
+                        ? 'Exit Admin'
+                        : 'ออก Admin'
+                      : lang === 'en'
+                      ? 'Admin'
+                      : 'ผู้ดูแลระบบ'}
+                  </span>
+                </button>
+              </>
+            )}
 
             <button
               type="button"
               onClick={() => setLang(lang === 'en' ? 'th' : 'en')}
-              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition"
+              className="px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-bold flex items-center gap-1 transition"
             >
               <Globe className="w-3.5 h-3.5 text-amber-400" />
               {lang === 'en' ? 'TH' : 'EN'}
@@ -1512,7 +1519,7 @@ export default function App() {
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
                           {q.options.map((opt) => {
                             const isSelected = pickedKey === opt.key;
                             return (
@@ -1521,14 +1528,14 @@ export default function App() {
                                 type="button"
                                 disabled={iratSubmitted}
                                 onClick={() => handleIratSelectOption(q.id, opt.key)}
-                                className={`p-4 rounded-2xl border-2 text-left transition-all flex items-start gap-3.5 ${
+                                className={`p-4 rounded-2xl border-2 text-left transition-all flex items-start gap-3.5 active:scale-[0.99] ${
                                   isSelected
                                     ? 'bg-kku-light border-kku-terracotta ring-4 ring-kku-terracotta/15 shadow-sm'
                                     : 'bg-slate-50/80 hover:bg-white border-slate-200 hover:border-slate-300'
                                 }`}
                               >
                                 <span
-                                  className={`w-8 h-8 rounded-xl text-sm font-extrabold flex items-center justify-center shrink-0 mt-0.5 shadow-sm ${
+                                  className={`w-9 h-9 rounded-xl text-sm font-extrabold flex items-center justify-center shrink-0 mt-0.5 shadow-sm ${
                                     isSelected
                                       ? 'bg-kku-terracotta text-white'
                                       : 'bg-white border border-slate-300 text-slate-800'
@@ -1667,7 +1674,7 @@ export default function App() {
                           )}
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
                           {q.options.map((opt) => {
                             const isScratched = scratched.includes(opt.key);
                             const isStar = isOptionAcceptableStar(q, opt.key);
@@ -1675,7 +1682,7 @@ export default function App() {
                             return (
                               <div
                                 key={opt.key}
-                                className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${
+                                className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 ${
                                   isScratched && isStar
                                     ? 'bg-emerald-50 border-emerald-400'
                                     : isScratched
@@ -1683,11 +1690,11 @@ export default function App() {
                                     : 'bg-slate-50 border-slate-200'
                                 }`}
                               >
-                                <div className="flex items-start gap-2.5">
-                                  <span className="w-7 h-7 rounded-lg bg-white border border-slate-300 text-sm font-extrabold flex items-center justify-center shrink-0">
+                                <div className="flex items-start gap-3">
+                                  <span className="w-8 h-8 rounded-xl bg-white border border-slate-300 text-sm font-extrabold flex items-center justify-center shrink-0 mt-0.5">
                                     {opt.key}
                                   </span>
-                                  <span className="text-sm sm:text-base font-medium text-slate-800">
+                                  <span className="text-sm sm:text-base font-medium text-slate-800 leading-relaxed">
                                     {opt[lang]}
                                   </span>
                                 </div>
@@ -1696,18 +1703,18 @@ export default function App() {
                                   type="button"
                                   disabled={isScratched || status.resolved || !isCurrentUserTeamRep}
                                   onClick={() => handleScratch(q, opt.key)}
-                                  className={`w-28 h-11 rounded-xl shrink-0 font-extrabold text-sm flex items-center justify-center gap-1 ${
+                                  className={`w-full sm:w-32 h-12 rounded-xl shrink-0 font-extrabold text-sm flex items-center justify-center gap-1 active:scale-95 transition ${
                                     !isScratched
                                       ? isCurrentUserTeamRep
                                         ? 'scratch-foil text-slate-900 cursor-pointer'
                                         : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                       : isStar
-                                      ? 'bg-amber-400 text-slate-950'
+                                      ? 'bg-amber-400 text-slate-950 shadow-sm'
                                       : 'bg-slate-200 text-rose-700'
                                   }`}
                                 >
                                   {!isScratched ? (
-                                    <span className="text-xs bg-white/85 px-2 py-0.5 rounded">
+                                    <span className="text-xs bg-white/85 px-2.5 py-0.5 rounded-md shadow-sm">
                                       {isCurrentUserTeamRep ? 'SCRATCH' : '🔒 LEADER'}
                                     </span>
                                   ) : isStar ? (
@@ -1932,7 +1939,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       {currentTeamMembers.map((member, idx) => {
                         const currentScore = peerStarsByTarget[member.id] ?? 10;
                         return (
@@ -1954,9 +1961,9 @@ export default function App() {
                               </span>
                             </div>
 
-                            {/* Interactive 0 to 10 Score Buttons */}
-                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                              <div className="grid grid-cols-11 gap-1">
+                            {/* Interactive 0 to 10 Score Buttons (Touch-Friendly Minimum 42px Targets on iPad) */}
+                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
+                              <div className="grid grid-cols-6 sm:grid-cols-11 gap-1.5">
                                 {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
                                   const isSelected = num === currentScore;
                                   const isFilled = num <= currentScore && num > 0;
@@ -1973,12 +1980,12 @@ export default function App() {
                                           }
                                         }))
                                       }
-                                      className={`py-2 rounded-lg font-extrabold text-xs transition ${
+                                      className={`min-h-[42px] rounded-xl font-extrabold text-xs sm:text-sm transition active:scale-95 ${
                                         isSelected
-                                          ? 'bg-kku-terracotta text-white shadow ring-2 ring-kku-terracotta/40 scale-105'
+                                          ? 'bg-kku-terracotta text-white shadow-md ring-2 ring-kku-terracotta/40 scale-105'
                                           : isFilled
                                           ? 'bg-amber-200 text-amber-950 hover:bg-amber-300'
-                                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
                                       }`}
                                     >
                                       {num}
@@ -2066,7 +2073,7 @@ export default function App() {
       <footer className="border-t border-slate-200/80 bg-white/80 backdrop-blur-sm py-4 px-6 mt-auto">
         <div className="max-w-6xl w-full mx-auto flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
           <span>
-            © 2026 {classInfo?.courseName || 'Team-Based Learning Platform'}. A{' '}
+            © 2026 TBL Studio. A{' '}
             <strong className="text-kku-terracotta font-extrabold">nattapon.io</strong> project.
           </span>
           <span>iRAT • IF-AT Scratch tRAT • 4S Simultaneous Case • 0–10 Peer Rating</span>
