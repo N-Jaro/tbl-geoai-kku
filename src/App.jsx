@@ -87,7 +87,7 @@ export default function App() {
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return {
-      mode: 'rat',
+      mode: 'teams',
       questionIndex: 0,
       showAnswer: false,
       showVotes: true,
@@ -254,7 +254,7 @@ export default function App() {
     () => initialSession?.selectedTeamId || TEAMS[0].id
   );
   const [activeStep, setActiveStep] = useState(
-    () => initialSession?.activeStep || 1
+    () => (typeof initialSession?.activeStep === 'number' ? initialSession.activeStep : 0)
   ); // 1..4
 
   // Per-Class Rosters Map: { [classId]: [{ id, name, section }] } so each instructor only sees their own class roster
@@ -626,12 +626,12 @@ export default function App() {
   const handleEnterClassroom = (studentObj, teamId) => {
     setSelectedTeamId(teamId);
     setActiveStudent({ ...studentObj, teamId });
-    setActiveStep(1);
+    setActiveStep(0);
     setRole('student');
   };
 
-  // Instructor phase lock controls (4 core in-class steps)
-  const [unlockedSteps, setUnlockedSteps] = useState([1, 2, 3, 4]);
+  // Instructor phase lock controls (starts on Step 0 Briefing; Instructor unlocks Steps 1 → 4)
+  const [unlockedSteps, setUnlockedSteps] = useState([]);
   // Per-week & per-team tRAT scratches: { [moduleId]: { [teamId]: { [questionId]: ['A', 'B'] } } }
   const [tratScratchesByMod, setTratScratchesByMod] = useState(() => {
     try {
@@ -1168,11 +1168,13 @@ export default function App() {
     setStickersByMod(omitMod);
     setSimultaneousReveal(false);
     setRevealExpertAnswer(false);
+    setUnlockedSteps([]);
     pushToServer(
       {
         resetModuleId: modId,
         simultaneousReveal: false,
-        revealExpertAnswer: false
+        revealExpertAnswer: false,
+        unlockedSteps: []
       },
       'replace'
     );
@@ -1296,6 +1298,9 @@ export default function App() {
         classInfo={classInfo}
         currentModule={currentModule}
         teams={activeTeams}
+        weeklyCheckins={weeklyCheckins}
+        teamRepByMod={teamRepByMod}
+        stickersByMod={stickersByMod}
         iratRecordsByMod={iratRecordsByMod}
         tratScratchesByMod={tratScratchesByMod}
         teamCaseChoiceByMod={teamCaseChoiceByMod}
@@ -1586,8 +1591,43 @@ export default function App() {
               </div>
             </div>
 
-            {/* 4 Numbered Step Wizard Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* 5-Stage Teacher-Paced Wizard Cards (0. Briefing + 1–4 TBL Steps) */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {/* Step 0: Week Briefing & Learning Objectives (Always Open) */}
+              <button
+                type="button"
+                onClick={() => setActiveStep(0)}
+                className={`p-3.5 rounded-2xl border-2 text-left transition-all flex items-center justify-between group ${
+                  activeStep === 0
+                    ? 'bg-gradient-to-br from-kku-terracotta to-kku-dark text-white border-kku-terracotta shadow-lg shadow-kku-terracotta/20 -translate-y-0.5'
+                    : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-300 shadow-sm'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-extrabold text-xs transition ${
+                      activeStep === 0
+                        ? 'bg-white/20 text-white border border-white/25'
+                        : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
+                    }`}
+                  >
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                  <div className="truncate">
+                    <div
+                      className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                        activeStep === 0 ? 'text-amber-200' : 'text-slate-400'
+                      }`}
+                    >
+                      STEP 0
+                    </div>
+                    <div className="text-xs font-extrabold truncate">
+                      {lang === 'en' ? '0. Objectives' : '0. วัตถุประสงค์'}
+                    </div>
+                  </div>
+                </div>
+              </button>
+
               {t.steps.map((st, idx) => {
                 const Icon = STEP_ICONS[idx];
                 const isUnlocked = unlockedSteps.includes(st.id);
@@ -1602,13 +1642,16 @@ export default function App() {
                   <button
                     key={st.id}
                     type="button"
-                    onClick={() => setActiveStep(st.id)}
+                    disabled={!isUnlocked}
+                    onClick={() => {
+                      if (isUnlocked) setActiveStep(st.id);
+                    }}
                     className={`p-3.5 rounded-2xl border-2 text-left transition-all flex items-center justify-between group ${
                       isActive
                         ? 'bg-gradient-to-br from-kku-terracotta to-kku-dark text-white border-kku-terracotta shadow-lg shadow-kku-terracotta/20 -translate-y-0.5'
                         : isUnlocked
                         ? 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-300 shadow-sm'
-                        : 'bg-slate-100/80 text-slate-400 border-slate-200 opacity-65'
+                        : 'bg-slate-100/80 text-slate-400 border-slate-200 opacity-65 cursor-not-allowed'
                     }`}
                   >
                     <div className="flex items-center gap-3 truncate">
@@ -1759,19 +1802,181 @@ export default function App() {
             onSwitchToStudentView={() => setRole('student')}
             onOpenAdminPortal={() => setRole('admin')}
           />
-        ) : !unlockedSteps.includes(activeStep) ? (
-          <div className="bg-white rounded-3xl p-10 border border-slate-200 text-center max-w-md mx-auto my-8 shadow-sm">
-            <Lock className="w-10 h-10 text-amber-600 mx-auto mb-3" />
+        ) : activeStep !== 0 && !unlockedSteps.includes(activeStep) ? (
+          <div className="bg-white rounded-3xl p-10 border border-slate-200 text-center max-w-md mx-auto my-8 shadow-sm space-y-3">
+            <Lock className="w-10 h-10 text-amber-600 mx-auto" />
             <h3 className="text-lg font-extrabold text-slate-900">{t.lockedStep}</h3>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-500">
               {lang === 'en'
                 ? 'Please wait for your instructor to unlock this step on the main stage.'
                 : 'กรุณารออาจารย์ผู้สอนปลดล็อกขั้นตอนนี้บนหน้าจอหลัก'}
             </p>
+            <button
+              type="button"
+              onClick={() => setActiveStep(0)}
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold"
+            >
+              {lang === 'en' ? 'Back to Week Objectives' : 'กลับไปหน้าวัตถุประสงค์สัปดาห์นี้'}
+            </button>
           </div>
         ) : (
-          /* ================= ULTRA-SIMPLE 4-STEP STUDENT WIZARD ================= */
+          /* ================= TEACHER-PACED STUDENT WIZARD (STEP 0 + STEPS 1–4) ================= */
           <div className="max-w-5xl mx-auto space-y-6">
+            {/* STEP 0: WEEK BRIEFING, LEARNING OBJECTIVES & SYNCHRONIZED START */}
+            {activeStep === 0 && (
+              <div className="space-y-5">
+                <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-kku-dark text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-800 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="px-3 py-1 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-xs font-extrabold uppercase tracking-wider">
+                      {currentModule.code} • {currentModule.duration || 'TBL Session'}
+                    </span>
+                    <span className="px-3 py-1 rounded-full bg-white/10 text-xs font-bold text-slate-200">
+                      {lang === 'en' ? currentTeam.name : currentTeam.thName || currentTeam.name}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h2 className="text-2xl sm:text-3xl font-extrabold leading-tight">
+                      {currentModule.title[lang]}
+                    </h2>
+                    <p className="text-sm text-slate-300 mt-1.5">
+                      {lang === 'en'
+                        ? 'Review today’s learning objectives below. Everyone will begin Step 1 (iRAT) together once the instructor unlocks it.'
+                        : 'ศึกษาจุดประสงค์การเรียนรู้ของสัปดาห์นี้ด้านล่าง นักศึกษาทุกคนจะเริ่มทำแบบทดสอบเดี่ยว (iRAT) พร้อมกันเมื่ออาจารย์กดเปิดขั้นตอนที่ 1'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Learning Objectives Card */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-kku-light text-kku-terracotta flex items-center justify-center shrink-0">
+                      <BookOpen className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-extrabold text-slate-900">
+                        {lang === 'en'
+                          ? 'What We Are Learning Today (Learning Objectives)'
+                          : 'สิ่งที่เราจะเรียนรู้ในสัปดาห์นี้ (วัตถุประสงค์การเรียนรู้)'}
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        {lang === 'en'
+                          ? 'By the end of this TBL cycle, your team will be able to:'
+                          : 'เมื่อจบกระบวนการเรียนรู้แบบ TBL ในสัปดาห์นี้ นักศึกษาจะสามารถ:'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {(currentModule.outcomes?.[lang] || currentModule.outcomes?.en || []).map(
+                      (obj, idx) => (
+                        <div
+                          key={idx}
+                          className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-3.5"
+                        >
+                          <span className="w-7 h-7 rounded-lg bg-kku-terracotta text-white font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                            {idx + 1}
+                          </span>
+                          <p className="text-sm sm:text-base font-semibold text-slate-800 leading-relaxed">
+                            {obj}
+                          </p>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                {/* Optional Pre-work / Key Concepts Preview */}
+                {Array.isArray(currentModule.preworkMaterials) &&
+                  currentModule.preworkMaterials.length > 0 && (
+                    <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-3">
+                      <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-500">
+                        {lang === 'en'
+                          ? 'Key Pre-Work Topics Covered Today'
+                          : 'หัวข้อเนื้อหาสำคัญประจำสัปดาห์'}
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {currentModule.preworkMaterials.map((pw) => (
+                          <div
+                            key={pw.id}
+                            className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1"
+                          >
+                            <div className="text-xs font-extrabold text-kku-terracotta">
+                              {pw.type} {pw.duration ? `• ${pw.duration}` : ''}
+                            </div>
+                            <div className="text-sm font-extrabold text-slate-900">
+                              {pw.title?.[lang] || pw.title?.en}
+                            </div>
+                            {(pw.summary?.[lang] || pw.summary?.en) && (
+                              <p className="text-xs text-slate-600 leading-relaxed">
+                                {pw.summary?.[lang] || pw.summary?.en}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {/* Synchronized Start iRAT Bar (Teacher-Controlled) */}
+                <div className="bg-slate-900 text-white rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4 shadow-lg">
+                  {unlockedSteps.includes(1) ? (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
+                        <div>
+                          <div className="text-xs font-extrabold uppercase text-emerald-300">
+                            {lang === 'en' ? 'Instructor Opened Step 1!' : 'อาจารย์เปิดขั้นตอนที่ 1 แล้ว!'}
+                          </div>
+                          <div className="text-sm font-bold text-slate-200">
+                            {lang === 'en'
+                              ? `Ready to start ${currentModule.questions.length} iRAT questions.`
+                              : `พร้อมเริ่มทำแบบทดสอบเดี่ยว (iRAT) จำนวน ${currentModule.questions.length} ข้อ`}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveStep(1)}
+                        className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center gap-2 shadow-lg transition active:scale-95"
+                      >
+                        {lang === 'en'
+                          ? 'Start Step 1: Individual Quiz (iRAT)'
+                          : 'เริ่มทำขั้นตอนที่ 1: สอบเดี่ยว (iRAT)'}
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <Lock className="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
+                        <div>
+                          <div className="text-xs font-extrabold uppercase text-amber-300">
+                            {lang === 'en'
+                              ? 'Waiting for Instructor to Start iRAT'
+                              : 'รออาจารย์กดเริ่มทำข้อสอบ iRAT พร้อมกัน'}
+                          </div>
+                          <div className="text-xs text-slate-300">
+                            {lang === 'en'
+                              ? 'This button will unlock automatically when your instructor starts Step 1.'
+                              : 'ปุ่มเริ่มทำข้อสอบจะเปิดใช้งานอัตโนมัติทันทีที่อาจารย์ปลดล็อกขั้นตอนที่ 1'}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled
+                        className="px-5 py-3 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 font-extrabold text-xs flex items-center gap-2 cursor-not-allowed"
+                      >
+                        <Lock className="w-4 h-4" />
+                        {lang === 'en' ? 'Locked by Instructor' : 'รออาจารย์เปิดรอบสอบ'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* STEP 1: SIMPLE SINGLE-CHOICE iRAT */}
             {activeStep === 1 && (
               <div className="space-y-5">
@@ -1861,14 +2066,27 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveStep(2)}
-                        className="px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-2"
-                      >
-                        {lang === 'en' ? 'Continue to Step 2: Team tRAT' : 'ไปขั้นตอนที่ 2: สอบทีม tRAT'}
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
+                      {unlockedSteps.includes(2) ? (
+                        <button
+                          type="button"
+                          onClick={() => setActiveStep(2)}
+                          className="px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-2"
+                        >
+                          {lang === 'en' ? 'Continue to Step 2: Team tRAT' : 'ไปขั้นตอนที่ 2: สอบทีม tRAT'}
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="px-5 py-3 rounded-xl bg-slate-800 text-amber-300 border border-slate-700 font-extrabold text-xs flex items-center gap-2 cursor-not-allowed"
+                        >
+                          <Lock className="w-4 h-4" />
+                          {lang === 'en'
+                            ? 'Waiting for Instructor to Unlock Step 2 (tRAT)...'
+                            : 'รออาจารย์เปิดขั้นตอนที่ 2 (สอบทีม tRAT)...'}
+                        </button>
+                      )}
                     </>
                   ) : (
                     <>
@@ -2034,14 +2252,27 @@ export default function App() {
                   <div className="text-sm font-extrabold">
                     Team tRAT Score: {tratTotalSummary.earned}/{tratTotalSummary.maxPts} ({tratTotalSummary.pct}%)
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep(3)}
-                    className="px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-2"
-                  >
-                    {lang === 'en' ? 'Continue to Step 3: 4S Case' : 'ไปขั้นตอนที่ 3: โจทย์ประยุกต์ 4S'}
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                  {unlockedSteps.includes(3) ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveStep(3)}
+                      className="px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-2"
+                    >
+                      {lang === 'en' ? 'Continue to Step 3: 4S Case' : 'ไปขั้นตอนที่ 3: โจทย์ประยุกต์ 4S'}
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      className="px-5 py-3 rounded-xl bg-slate-800 text-amber-300 border border-slate-700 font-extrabold text-xs flex items-center gap-2 cursor-not-allowed"
+                    >
+                      <Lock className="w-4 h-4" />
+                      {lang === 'en'
+                        ? 'Waiting for Instructor to Unlock Step 3 (4S)...'
+                        : 'รออาจารย์เปิดขั้นตอนที่ 3 (โจทย์ 4S)...'}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -2540,16 +2771,29 @@ export default function App() {
                         ? 'After the instructor reveals all cards and leads the cross-team discussion, continue to Step 4 (Peer Evaluation).'
                         : 'เมื่ออาจารย์เปิดป้ายครบทุกกลุ่มและอภิปรายแลกเปลี่ยนเหตุผลระหว่างกลุ่มเสร็จแล้ว ให้กดไปขั้นตอนที่ 4 (ประเมินเพื่อน)'}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveStep(4)}
-                      className="px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-2 shadow"
-                    >
-                      {lang === 'en'
-                        ? 'Finish Discussion & Go to Step 4: Peer Eval'
-                        : 'จบการอภิปรายและไปขั้นตอนที่ 4: ประเมินเพื่อน'}
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
+                    {unlockedSteps.includes(4) ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveStep(4)}
+                        className="px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-2 shadow"
+                      >
+                        {lang === 'en'
+                          ? 'Finish Discussion & Go to Step 4: Peer Eval'
+                          : 'จบการอภิปรายและไปขั้นตอนที่ 4: ประเมินเพื่อน'}
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="px-5 py-3 rounded-xl bg-slate-800 text-amber-300 border border-slate-700 font-extrabold text-xs flex items-center gap-2 cursor-not-allowed"
+                      >
+                        <Lock className="w-4 h-4" />
+                        {lang === 'en'
+                          ? 'Waiting for Instructor to Unlock Step 4 (Peer Eval)...'
+                          : 'รออาจารย์เปิดขั้นตอนที่ 4 (ประเมินเพื่อน)...'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

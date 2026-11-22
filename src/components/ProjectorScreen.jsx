@@ -17,7 +17,8 @@ import {
   Sparkles,
   Users,
   HelpCircle,
-  MapPin
+  MapPin,
+  Crown
 } from 'lucide-react';
 import GeoAIMap from './GeoAIMap';
 
@@ -27,6 +28,9 @@ export default function ProjectorScreen({
   classInfo,
   currentModule,
   teams,
+  weeklyCheckins = {},
+  teamRepByMod = {},
+  stickersByMod = {},
   iratRecordsByMod,
   tratScratchesByMod,
   teamCaseChoiceByMod,
@@ -78,10 +82,50 @@ export default function ProjectorScreen({
     Math.max(0, questions.length - 1)
   );
   const currentQ = questions[safeQIdx];
-  const mode = projectorState?.mode === 'case' ? 'case' : 'rat';
+  const mode =
+    projectorState?.mode === 'rat'
+      ? 'rat'
+      : projectorState?.mode === 'case'
+      ? 'case'
+      : 'teams';
   const showAnswer = !!projectorState?.showAnswer;
   const showVotes = projectorState?.showVotes !== false;
   const showMap = !!projectorState?.showMap;
+
+  const moduleCheckins = weeklyCheckins?.[currentModule?.id] || {};
+  const moduleReps = teamRepByMod?.[currentModule?.id] || {};
+  const moduleStickers = stickersByMod?.[currentModule?.id] || {};
+
+  // Flatten all checked-in members with >=1 discussion star for live discussion ribbon
+  const starredStudents = useMemo(() => {
+    const list = [];
+    teams.forEach((tm) => {
+      const members = moduleCheckins[tm.id] || [];
+      members.forEach((m) => {
+        const stars = Number(moduleStickers[m.id]) || 0;
+        if (stars > 0) {
+          list.push({
+            id: m.id,
+            name: m.name,
+            stars,
+            teamColor: tm.color || '#A73B24',
+            teamShort: (lang === 'en' ? tm.name : tm.thName || tm.name).split(':')[0]
+          });
+        }
+      });
+    });
+    return list.sort((a, b) => b.stars - a.stars);
+  }, [teams, moduleCheckins, moduleStickers, lang]);
+
+  const totalCheckedIn = useMemo(
+    () => teams.reduce((sum, tm) => sum + (moduleCheckins[tm.id]?.length || 0), 0),
+    [teams, moduleCheckins]
+  );
+
+  const totalStarsAwarded = useMemo(
+    () => Object.values(moduleStickers).reduce((sum, v) => sum + (Number(v) || 0), 0),
+    [moduleStickers]
+  );
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -224,6 +268,18 @@ export default function ProjectorScreen({
         <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
           <button
             type="button"
+            onClick={() => onUpdateProjectorState({ mode: 'teams' })}
+            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition ${
+              mode === 'teams'
+                ? 'bg-kku-terracotta text-white shadow'
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            {lang === 'en' ? 'Teams & Stars' : 'กลุ่ม & ดาวอภิปราย'}
+          </button>
+          <button
+            type="button"
             onClick={() => onUpdateProjectorState({ mode: 'rat' })}
             className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition ${
               mode === 'rat'
@@ -321,7 +377,141 @@ export default function ProjectorScreen({
 
       {/* MAIN PROJECTOR STAGE */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6 flex flex-col gap-6">
-        {mode === 'rat' ? (
+        {mode === 'teams' ? (
+          /* ================= FIRST SCREEN: TEAMS, NAMES & DISCUSSION STARS ================= */
+          <div className="space-y-6">
+            <div className="bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                  {lang === 'en'
+                    ? 'Live Classroom Teams & Discussion Stars'
+                    : 'รายชื่อกลุ่มประจำสัปดาห์และดาวอภิปรายในชั้นเรียน'}
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-white mt-0.5">
+                  {currentModule.code}: {currentModule.title[lang]}
+                </h1>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="px-4 py-2.5 rounded-2xl bg-slate-800 border border-slate-700 text-center">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase">
+                    {lang === 'en' ? 'Teams' : 'กลุ่ม'}
+                  </div>
+                  <div className="text-xl font-black text-white">{teams.length}</div>
+                </div>
+                <div className="px-4 py-2.5 rounded-2xl bg-slate-800 border border-slate-700 text-center">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase">
+                    {lang === 'en' ? 'Students' : 'นักศึกษา'}
+                  </div>
+                  <div className="text-xl font-black text-emerald-400">{totalCheckedIn}</div>
+                </div>
+                <div className="px-4 py-2.5 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-center">
+                  <div className="text-[11px] font-bold text-amber-300 uppercase">
+                    {lang === 'en' ? 'Discussion ★' : 'ดาวอภิปรายรวม'}
+                  </div>
+                  <div className="text-xl font-black text-amber-300 flex items-center justify-center gap-1">
+                    <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+                    {totalStarsAwarded}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {teams.map((tm) => {
+                const members = moduleCheckins[tm.id] || [];
+                const repId = moduleReps[tm.id];
+                const teamStars = members.reduce(
+                  (sum, m) => sum + (Number(moduleStickers[m.id]) || 0),
+                  0
+                );
+                return (
+                  <div
+                    key={tm.id}
+                    className="bg-slate-900 rounded-3xl border border-slate-800 overflow-hidden shadow-xl flex flex-col"
+                  >
+                    <div
+                      className="px-5 py-3.5 flex items-center justify-between gap-2 border-b border-slate-800"
+                      style={{
+                        borderTop: `4px solid ${tm.color || '#A73B24'}`
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <h2 className="text-base sm:text-lg font-extrabold text-white truncate">
+                          {lang === 'en' ? tm.name : tm.thName || tm.name}
+                        </h2>
+                        <div className="text-xs font-bold text-slate-400">
+                          {members.length} {lang === 'en' ? 'members' : 'คน'}
+                        </div>
+                      </div>
+                      {teamStars > 0 && (
+                        <span className="px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 font-black text-sm flex items-center gap-1 shrink-0">
+                          <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                          {teamStars}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="p-4 space-y-2 flex-1">
+                      {members.length === 0 ? (
+                        <div className="py-8 text-center text-xs font-semibold text-slate-500">
+                          {lang === 'en'
+                            ? 'Waiting for students to join...'
+                            : 'รอนักศึกษาเข้ากลุ่ม...'}
+                        </div>
+                      ) : (
+                        members.map((m) => {
+                          const isLeader = repId === m.id;
+                          const stars = Number(moduleStickers[m.id]) || 0;
+                          return (
+                            <div
+                              key={m.id}
+                              className={`px-3.5 py-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                                stars > 0
+                                  ? 'bg-amber-500/10 border-amber-400/35'
+                                  : isLeader
+                                  ? 'bg-slate-800/90 border-slate-700'
+                                  : 'bg-slate-950/60 border-slate-800/80'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                {isLeader && (
+                                  <Crown
+                                    className="w-4 h-4 text-amber-400 shrink-0"
+                                    title={lang === 'en' ? 'Team Leader' : 'หัวหน้ากลุ่ม'}
+                                  />
+                                )}
+                                <span className="text-sm sm:text-base font-bold text-white truncate">
+                                  {m.name}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {stars > 0 ? (
+                                  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-lg bg-amber-400/20 border border-amber-400/50 text-amber-300 font-black text-xs">
+                                    {Array.from({ length: Math.min(stars, 5) }).map((_, i) => (
+                                      <Star
+                                        key={i}
+                                        className="w-3.5 h-3.5 fill-amber-400 text-amber-400"
+                                      />
+                                    ))}
+                                    {stars > 5 && <span className="ml-0.5">×{stars}</span>}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-bold text-slate-600">—</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : mode === 'rat' ? (
           currentQ ? (
             <>
               {/* Question Navigator + Reveal Controls */}
@@ -775,6 +965,28 @@ export default function ProjectorScreen({
                 })}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Live Discussion Stars Ribbon (shown during RAT & 4S discussions when anyone has stars) */}
+        {mode !== 'teams' && starredStudents.length > 0 && (
+          <div className="bg-slate-900/90 rounded-2xl px-4 py-3 border border-amber-400/30 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5 mr-1 shrink-0">
+              <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+              {lang === 'en' ? 'Discussion Stars:' : 'ดาวอภิปราย:'}
+            </span>
+            {starredStudents.map((st) => (
+              <span
+                key={st.id}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-400/35 text-xs font-extrabold text-white"
+              >
+                <span>{st.name}</span>
+                <span className="text-amber-300 flex items-center gap-0.5">
+                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                  {st.stars}
+                </span>
+              </span>
+            ))}
           </div>
         )}
       </main>

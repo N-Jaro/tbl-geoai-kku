@@ -884,12 +884,37 @@ export default function InstructorPortal({
               </div>
             </div>
 
-            {/* Step Unlock Bar + Random Team Reshuffle */}
+            {/* Step Unlock Bar + Teacher-Paced Next Step Control */}
             <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-extrabold text-slate-700 mr-1">
-                  {lang === 'en' ? 'Unlock Student Steps:' : 'เปิดขั้นตอนให้นักศึกษา:'}
+                  {lang === 'en' ? 'Teacher Stage Control:' : 'ควบคุมขั้นตอนชั้นเรียน:'}
                 </span>
+
+                {/* One-click Advance to Next Step button */}
+                {(() => {
+                  const nextLockedStep = [1, 2, 3, 4].find((id) => !unlockedSteps.includes(id));
+                  const nextLabels = {
+                    1: lang === 'en' ? '▶ Start Step 1: iRAT' : '▶ เริ่มขั้นตอน 1: สอบเดี่ยว iRAT',
+                    2: lang === 'en' ? '▶ Unlock Step 2: tRAT' : '▶ เปิดขั้นตอน 2: สอบทีม tRAT',
+                    3: lang === 'en' ? '▶ Unlock Step 3: 4S Case' : '▶ เปิดขั้นตอน 3: โจทย์ 4S',
+                    4: lang === 'en' ? '▶ Unlock Step 4: Peer Eval' : '▶ เปิดขั้นตอน 4: ประเมินเพื่อน'
+                  };
+                  return nextLockedStep ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onSetUnlockedSteps((prev) =>
+                          prev.includes(nextLockedStep) ? prev : [...prev, nextLockedStep]
+                        )
+                      }
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-sm transition"
+                    >
+                      {nextLabels[nextLockedStep]}
+                    </button>
+                  ) : null;
+                })()}
+
                 {[
                   { id: 1, label: '1. iRAT' },
                   { id: 2, label: '2. tRAT' },
@@ -917,12 +942,24 @@ export default function InstructorPortal({
                       {isUnlocked ? (
                         <Unlock className="w-3.5 h-3.5 text-emerald-600" />
                       ) : (
-                        <Lock className="w-3.5 h-3.5" />
+                        <Lock className="w-3.5 h-3.5 text-slate-400" />
                       )}
                       {st.label}
                     </button>
                   );
                 })}
+
+                {unlockedSteps.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onSetUnlockedSteps([])}
+                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 border border-slate-200 text-xs font-bold flex items-center gap-1 transition"
+                    title="Lock all steps back to Step 0 Briefing"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    {lang === 'en' ? 'Lock All (Briefing)' : 'ล็อกกลับหน้าวัตถุประสงค์'}
+                  </button>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -1050,6 +1087,18 @@ export default function InstructorPortal({
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
+                      onClick={() => onUpdateProjectorState({ mode: 'teams' })}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition ${
+                        (projectorState?.mode || 'teams') === 'teams'
+                          ? 'bg-kku-terracotta border-kku-terracotta text-white shadow-sm'
+                          : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {lang === 'en' ? 'Project Teams & Stars' : 'ขึ้นจอกลุ่ม & ดาวอภิปราย'}
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() =>
                         onUpdateProjectorState({ showVotes: !(projectorState?.showVotes !== false) })
                       }
@@ -1142,7 +1191,7 @@ export default function InstructorPortal({
                     });
                     const needsDiscuss = pct !== null && pct < 70;
                     const isLiveOnProjector =
-                      projectorState?.mode !== 'case' &&
+                      projectorState?.mode === 'rat' &&
                       (Number(projectorState?.questionIndex) || 0) === idx;
 
                     return (
