@@ -1269,23 +1269,109 @@ export default function LessonBuilder({
               </div>
             </div>
 
-            {/* Interactive Map Zones Editor */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-bold text-slate-800">
+            {/* Optional Visual Attachments & Interactive Map Toggle */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-extrabold text-slate-900">
+                    {lang === 'en'
+                      ? 'Case Visuals, Colab Links & Interactive Map Display'
+                      : 'รูปภาพประกอบโจทย์ ลิงก์ข้อมูล/Colab และการแสดงแผนที่'}
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    {lang === 'en'
+                      ? 'Different weeks have different problems: show the interactive GIS map, or attach an architecture diagram/chart image URL and Google Colab link, or hide the map for non-map weeks.'
+                      : 'แต่ละสัปดาห์มีโจทย์ต่างกัน: สามารถเลือกเปิด/ปิดแผนที่ แนบลิงก์รูปภาพกราฟ/สถาปัตยกรรมโมเดล หรือแนบลิงก์ Google Colab ประจำสัปดาห์ได้'}
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={draft.applicationCase.showMap !== false}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        applicationCase: {
+                          ...draft.applicationCase,
+                          showMap: e.target.checked
+                        }
+                      })
+                    }
+                    className="accent-kku-terracotta"
+                  />
                   {lang === 'en'
-                    ? 'Interactive Map Spatial Zones (Lat/Lng & Sensor Telemetry)'
-                    : 'พิกัดโซนบนแผนที่โต้ตอบและค่าสัญญาณดาวเทียมประจำสัปดาห์'}
+                    ? 'Show Interactive Spatial Map in Step 3'
+                    : 'แสดงแผนที่โต้ตอบ (Interactive Map) ในขั้นตอนนี้'}
                 </label>
-                <button
-                  type="button"
-                  onClick={addSpatialZone}
-                  className="px-3 py-1.5 rounded-lg bg-slate-900 text-white font-bold text-xs flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  {lang === 'en' ? 'Add Map Zone' : 'เพิ่มโซนแผนที่'}
-                </button>
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    {lang === 'en'
+                      ? 'Optional Diagram / Chart / Satellite Image URL'
+                      : 'ลิงก์รูปภาพประกอบโจทย์ / กราฟ / สถาปัตยกรรมโมเดล (ไม่บังคับ)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={draft.applicationCase.imageUrl || ''}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        applicationCase: {
+                          ...draft.applicationCase,
+                          imageUrl: e.target.value
+                        }
+                      })
+                    }
+                    placeholder="https://example.com/confusion-matrix-or-chart.png"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    {lang === 'en'
+                      ? 'Optional Reference / Google Colab / Dataset URL'
+                      : 'ลิงก์เอกสารอ้างอิง / Google Colab / ชุดข้อมูล (ไม่บังคับ)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={draft.applicationCase.referenceUrl || ''}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        applicationCase: {
+                          ...draft.applicationCase,
+                          referenceUrl: e.target.value
+                        }
+                      })
+                    }
+                    placeholder="https://colab.research.google.com/..."
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Map Zones Editor (Only shown when showMap is enabled) */}
+            {draft.applicationCase.showMap !== false && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-800">
+                    {lang === 'en'
+                      ? 'Interactive Map Spatial Zones (Lat/Lng & Sensor Telemetry)'
+                      : 'พิกัดโซนบนแผนที่โต้ตอบและค่าสัญญาณดาวเทียมประจำสัปดาห์'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addSpatialZone}
+                    className="px-3 py-1.5 rounded-lg bg-slate-900 text-white font-bold text-xs flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    {lang === 'en' ? 'Add Map Zone' : 'เพิ่มโซนแผนที่'}
+                  </button>
+                </div>
 
               <div className="space-y-2.5">
                 {draft.applicationCase.spatialZones.map((zn, zIdx) => (
@@ -1409,6 +1495,7 @@ export default function LessonBuilder({
                 ))}
               </div>
             </div>
+            )}
           </div>
         )}
 

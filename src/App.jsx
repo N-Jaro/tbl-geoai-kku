@@ -37,6 +37,7 @@ const REPS_STORAGE_KEY = 'kku_geoai_tbl_reps_v2_clean';
 const IRAT_STORAGE_KEY = 'kku_geoai_tbl_irat_records_v2_clean';
 const TRAT_STORAGE_KEY = 'kku_geoai_tbl_trat_scratches_v2_clean';
 const PEER_EVAL_STORAGE_KEY = 'kku_geoai_tbl_peer_evals_v2_clean';
+const STICKERS_STORAGE_KEY = 'kku_geoai_tbl_stickers_v1';
 const CLASSES_STORAGE_KEY = 'kku_geoai_tbl_classes_v1';
 const SESSION_UI_STORAGE_KEY = 'kku_geoai_tbl_ui_session_v2_th';
 
@@ -153,7 +154,18 @@ export default function App() {
     () => initialSession?.selectedModuleId || classModules[0]?.id || MODULES[0].id
   );
 
-  // Keep selectedModuleId synced whenever selectedClassId changes
+  // Whenever the authenticated Instructor switches class or week, broadcast activeClassId & activeModuleId to all student devices
+  useEffect(() => {
+    if (role === 'instructor' && isInstructorAuthed && selectedClassId && selectedModuleId) {
+      pushToServer(
+        {
+          activeClassId: selectedClassId,
+          activeModuleId: selectedModuleId
+        },
+        'replace'
+      );
+    }
+  }, [role, isInstructorAuthed, selectedClassId, selectedModuleId]);
   useEffect(() => {
     if (!classModules.some((m) => m.id === selectedModuleId)) {
       if (classModules[0]?.id) {
@@ -385,18 +397,39 @@ export default function App() {
     } catch (e) {}
   }, [iratRecordsByMod]);
 
+  // Format Student ID to show the last 4 digits (excluding hyphen, e.g. "673380105-0" -> "105-0" or 4 digits)
+  const formatLast4Id = (idStr) => {
+    const raw = String(idStr || '').trim();
+    const digitsOnly = raw.replace(/[^0-9a-zA-Z]/g, '');
+    if (digitsOnly.length <= 4) return raw;
+    // If it ends with "-X", show 3 digits before hyphen + "-X" (4 digits total, e.g. "105-0")
+    if (/-\w$/.test(raw) && raw.length >= 5) {
+      return raw.slice(-5);
+    }
+    return digitsOnly.slice(-4);
+  };
+
+  // Normalize Student IDs (ignores hyphens/spaces) so "6733801377" matches "673380137-7"
+  const normalizeStudentId = (idStr) =>
+    String(idStr || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[-\s]/g, '');
+
   // Balanced Random Team Assignment whenever a student checks in with their Student ID (respects targetTeamSize)
   const handleRandomAssignStudent = (modId, studentObj) => {
     const modTeams = { ...(weeklyCheckins[modId] || {}) };
+    const normTargetId = normalizeStudentId(studentObj.id);
 
-    // 1. Check if student already has a random team for this week
-    for (const tm of activeTeams) {
-      const list = modTeams[tm.id] || [];
-      if (list.some((s) => s.id.toLowerCase() === studentObj.id.toLowerCase())) {
-        const currentLeader = teamRepByMod[modId]?.[tm.id] || list[0]?.id;
+    // 1. Check if student already has a random team for this week (including across any team key)
+    for (const [tId, list] of Object.entries(modTeams)) {
+      if (!Array.isArray(list)) continue;
+      const found = list.find((s) => normalizeStudentId(s.id) === normTargetId);
+      if (found) {
+        const currentLeader = teamRepByMod[modId]?.[tId] || list[0]?.id;
         return {
-          assignedTeamId: tm.id,
-          isLeader: currentLeader === studentObj.id
+          assignedTeamId: tId,
+          isLeader: normalizeStudentId(currentLeader) === normTargetId
         };
       }
     }
@@ -477,14 +510,20 @@ export default function App() {
 
     setWeeklyCheckins((prev) => {
       const next = { ...prev, [modId]: newModTeams };
-      pushToServer({ weeklyCheckins: next }, 'replace');
       return next;
     });
     setTeamRepByMod((prev) => {
       const next = { ...prev, [modId]: newModLeaders };
-      pushToServer({ teamRepByMod: next }, 'replace');
       return next;
     });
+    // Push BOTH weeklyCheckins and teamRepByMod in ONE atomic transaction so leaders are never wiped out
+    pushToServer(
+      {
+        weeklyCheckins: { [modId]: newModTeams },
+        teamRepByMod: { [modId]: newModLeaders }
+      },
+      'replace'
+    );
   };
 
   const handleSetTeamRep = (modId, teamId, studentId) => {
@@ -532,12 +571,48 @@ export default function App() {
     } catch (e) {}
   }, [tratScratchesByMod]);
 
-  // Step 3: 4S Application Case
+  // Step 3: 4S Application Case & Discussion Stickers
   const [activeZoneId, setActiveZoneId] = useState('zone-1');
   const [teamCaseChoiceByMod, setTeamCaseChoiceByMod] = useState({});
   const [teamCaseRationaleByMod, setTeamCaseRationaleByMod] = useState({});
   const [caseLockedByMod, setCaseLockedByMod] = useState({});
   const [simultaneousReveal, setSimultaneousReveal] = useState(false);
+  const [revealExpertAnswer, setRevealExpertAnswer] = useState(false);
+  const [zoomedCaseImage, setZoomedCaseImage] = useState(null);
+
+  // Digital Discussion Stickers per module & studentId: { [moduleId]: { [studentId]: count } }
+  const [stickersByMod, setStickersByMod] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STICKERS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {};
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STICKERS_STORAGE_KEY, JSON.stringify(stickersByMod));
+    } catch (e) {}
+  }, [stickersByMod]);
+
+  const handleAdjustStudentSticker = (modId, studentId, delta = 1) => {
+    setStickersByMod((prev) => {
+      const modMap = { ...(prev[modId] || {}) };
+      const curCount = Number(modMap[studentId]) || 0;
+      const nextCount = Math.max(0, curCount + delta);
+      modMap[studentId] = nextCount;
+      const next = { ...prev, [modId]: modMap };
+      pushToServer(
+        {
+          stickersByMod: {
+            [modId]: { [studentId]: nextCount }
+          }
+        },
+        'merge'
+      );
+      return next;
+    });
+  };
 
   // Step 4: Peer Evaluation per week & per evaluator studentId
   // peerEvalsByMod: { [moduleId]: { [evaluatorId]: { pointsByTargetId: { [targetId]: pts }, commentsByTargetId: { [targetId]: text }, submitted: true } } }
@@ -560,9 +635,37 @@ export default function App() {
     () => classModules.find((m) => m.id === selectedModuleId) || classModules[0],
     [classModules, selectedModuleId]
   );
+  // Find which team the activeStudent actually belongs to in `weeklyCheckins[currentModule.id]`
+  // so if the instructor clicks "Randomize All Teams 🎲", every logged-in student's iPad automatically updates to their new team!
+  const resolvedStudentTeamId = useMemo(() => {
+    if (!activeStudent || !currentModule) return selectedTeamId;
+    const normMe = normalizeStudentId(activeStudent.id);
+    const weekMap = weeklyCheckins[currentModule.id] || {};
+    for (const [tId, list] of Object.entries(weekMap)) {
+      if (Array.isArray(list) && list.some((m) => normalizeStudentId(m.id) === normMe)) {
+        return tId;
+      }
+    }
+    return selectedTeamId;
+  }, [activeStudent, currentModule, weeklyCheckins, selectedTeamId]);
+
+  useEffect(() => {
+    if (
+      role === 'student' &&
+      activeStudent &&
+      resolvedStudentTeamId &&
+      resolvedStudentTeamId !== selectedTeamId
+    ) {
+      setSelectedTeamId(resolvedStudentTeamId);
+      setActiveStudent((prev) =>
+        prev ? { ...prev, teamId: resolvedStudentTeamId } : prev
+      );
+    }
+  }, [role, activeStudent, resolvedStudentTeamId, selectedTeamId]);
+
   const currentTeam = useMemo(
-    () => activeTeams.find((tm) => tm.id === selectedTeamId) || activeTeams[0],
-    [activeTeams, selectedTeamId]
+    () => activeTeams.find((tm) => tm.id === resolvedStudentTeamId) || activeTeams[0],
+    [activeTeams, resolvedStudentTeamId]
   );
 
   const currentTeamMembers = useMemo(() => {
@@ -592,24 +695,26 @@ export default function App() {
   const iratAllocations = currentStudentIratRecord.allocations || {};
   const iratSubmitted = !!currentStudentIratRecord.submitted;
 
-  // Designated Team Leader (tRAT Submitter)
+  // Designated Team Leader (tRAT & 4S Card Submitter)
   const currentTeamRepId =
     teamRepByMod[currentModule.id]?.[currentTeam.id] ||
     currentTeamMembers[0]?.id ||
     null;
   const currentTeamRepObj =
-    currentTeamMembers.find((m) => m.id === currentTeamRepId) ||
-    roster.find((r) => r.id === currentTeamRepId) ||
+    currentTeamMembers.find((m) => normalizeStudentId(m.id) === normalizeStudentId(currentTeamRepId)) ||
+    roster.find((r) => normalizeStudentId(r.id) === normalizeStudentId(currentTeamRepId)) ||
     currentTeamMembers[0];
-  const isCurrentUserTeamRep = activeStudent?.id === currentTeamRepId;
+  const isCurrentUserTeamRep =
+    normalizeStudentId(activeStudent?.id) === normalizeStudentId(currentTeamRepId);
 
+  // Per-week & Per-team 4S Card Choice: teamCaseChoiceByMod[moduleId][teamId]
+  const modCaseChoices = teamCaseChoiceByMod[currentModule.id];
   const teamCaseChoice =
-    teamCaseChoiceByMod[currentModule.id] ||
-    currentModule.applicationCase?.recommendedChoice ||
-    'choice-B';
+    (modCaseChoices && typeof modCaseChoices === 'object'
+      ? modCaseChoices[currentTeam.id]
+      : null) || null;
   const teamCaseRationale =
-    teamCaseRationaleByMod[currentModule.id] ??
-    'Selected based on our multi-sensor analysis and spatial cross-validation discussion.';
+    teamCaseRationaleByMod[currentModule.id]?.[currentTeam.id] ?? '';
   const caseLocked = !!caseLockedByMod[currentModule.id];
 
   // Per-evaluator 0-10 Peer Evaluation state for the currently active student
@@ -977,6 +1082,7 @@ export default function App() {
     setIratRecordsByMod({});
     setPeerEvalsByMod({});
     setTratScratchesByMod({});
+    setStickersByMod({});
     setActiveStudent(null);
     pushToServer(
       {
@@ -984,7 +1090,8 @@ export default function App() {
         teamRepByMod: {},
         iratRecordsByMod: {},
         peerEvalsByMod: {},
-        tratScratchesByMod: {}
+        tratScratchesByMod: {},
+        stickersByMod: {}
       },
       'replace'
     );
@@ -1032,11 +1139,29 @@ export default function App() {
         if (st.teamCaseChoiceByMod && typeof st.teamCaseChoiceByMod === 'object') {
           setTeamCaseChoiceByMod(st.teamCaseChoiceByMod);
         }
+        if (st.teamCaseRationaleByMod && typeof st.teamCaseRationaleByMod === 'object') {
+          setTeamCaseRationaleByMod(st.teamCaseRationaleByMod);
+        }
+        if (st.stickersByMod && typeof st.stickersByMod === 'object') {
+          setStickersByMod(st.stickersByMod);
+        }
         if (Array.isArray(st.unlockedSteps)) {
           setUnlockedSteps(st.unlockedSteps);
         }
         if (typeof st.simultaneousReveal === 'boolean') {
           setSimultaneousReveal(st.simultaneousReveal);
+        }
+        if (typeof st.revealExpertAnswer === 'boolean') {
+          setRevealExpertAnswer(st.revealExpertAnswer);
+        }
+        // Sync Instructor's active Class & Week to students so everyone is on the exact same session
+        if (role === 'student') {
+          if (st.activeClassId) {
+            setSelectedClassId(st.activeClassId);
+          }
+          if (st.activeModuleId) {
+            setSelectedModuleId(st.activeModuleId);
+          }
         }
       } catch (e) {
         if (isMounted) setServerSyncStatus('local');
@@ -1292,6 +1417,12 @@ export default function App() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold">
+                {(stickersByMod[currentModule.id]?.[activeStudent?.id] || 0) > 0 && (
+                  <span className="px-3 py-1 rounded-lg bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 font-extrabold shadow-sm flex items-center gap-1 animate-bounce">
+                    🌟 x{stickersByMod[currentModule.id]?.[activeStudent?.id]}{' '}
+                    {lang === 'en' ? 'Stickers!' : 'ดาวอภิปราย!'}
+                  </span>
+                )}
                 <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700">
                   iRAT:{' '}
                   <strong className="text-kku-terracotta">
@@ -1450,11 +1581,27 @@ export default function App() {
             tratTotalSummary={tratTotalSummary}
             teamCaseChoiceByMod={teamCaseChoiceByMod}
             teamCaseRationaleByMod={teamCaseRationaleByMod}
+            stickersByMod={stickersByMod}
+            onAdjustStudentSticker={handleAdjustStudentSticker}
+            formatLast4Id={formatLast4Id}
             simultaneousReveal={simultaneousReveal}
             onToggleSimultaneousReveal={() => {
               const next = !simultaneousReveal;
               setSimultaneousReveal(next);
-              pushToServer({ simultaneousReveal: next }, 'replace');
+              if (!next) setRevealExpertAnswer(false);
+              pushToServer(
+                {
+                  simultaneousReveal: next,
+                  ...(next ? {} : { revealExpertAnswer: false })
+                },
+                'replace'
+              );
+            }}
+            revealExpertAnswer={revealExpertAnswer}
+            onToggleRevealExpertAnswer={() => {
+              const next = !revealExpertAnswer;
+              setRevealExpertAnswer(next);
+              pushToServer({ revealExpertAnswer: next }, 'replace');
             }}
             unlockedSteps={unlockedSteps}
             onSetUnlockedSteps={(updater) => {
@@ -1755,36 +1902,134 @@ export default function App() {
               </div>
             )}
 
-            {/* STEP 3: 4S CASE CARD RAISE */}
+            {/* STEP 3: 4S CASE CARD RAISE (TEAM LEADER PICKS CARD + CROSS-TEAM DISCUSSION BOARD) */}
             {activeStep === 3 && (
               <div className="space-y-5">
-                <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-                  <span className="text-sm font-extrabold uppercase text-kku-terracotta">
-                    Step 3 of 4 • 4S Application Case
-                  </span>
-                  <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-1">
-                    {currentModule.applicationCase.title[lang]}
-                  </h2>
-                  <p className="text-sm sm:text-base text-slate-700 mt-2 leading-relaxed">
-                    {currentModule.applicationCase.scenario[lang]}
-                  </p>
+                {/* Team Leader Role Banner for Step 3 */}
+                <div
+                  className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ${
+                    isCurrentUserTeamRep
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                      : 'bg-amber-50 border-amber-300 text-amber-950'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 text-xs">
+                    <Crown
+                      className={`w-5 h-5 shrink-0 ${
+                        isCurrentUserTeamRep ? 'text-emerald-600' : 'text-amber-600'
+                      }`}
+                    />
+                    <div className="font-extrabold text-sm">
+                      {isCurrentUserTeamRep
+                        ? lang === 'en'
+                          ? `You are the Team Leader (${activeStudent?.name}) — Select your team’s 4S Decision Card (A/B/C/D) below!`
+                          : `คุณคือหัวหน้ากลุ่ม (${activeStudent?.name}) — คลิกเลือกป้ายตัดสินใจ 4S (A/B/C/D) ของกลุ่มด้านล่าง!`
+                        : lang === 'en'
+                        ? `Discuss the spatial data together! Your Team Leader (${currentTeamRepObj?.name}) will lock your team’s 4S Card.`
+                        : `ร่วมวิเคราะห์แผนที่และอภิปรายในกลุ่ม! เฉพาะหัวหน้ากลุ่ม (${currentTeamRepObj?.name}) เท่านั้นที่เป็นผู้กดเลือกป้ายคำตอบ 4S`}
+                    </div>
+                  </div>
+
+                  {!isCurrentUserTeamRep && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleSetTeamRep(currentModule.id, currentTeam.id, activeStudent.id)
+                      }
+                      className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs"
+                    >
+                      {lang === 'en' ? 'Take Over as Team Leader' : 'เปลี่ยนฉันเป็นหัวหน้ากลุ่ม'}
+                    </button>
+                  )}
                 </div>
 
-                <GeoAIMap
-                  zones={currentModule.applicationCase.spatialZones}
-                  lang={lang}
-                  activeZoneId={activeZoneId}
-                  onSelectZone={setActiveZoneId}
-                />
-
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
-                  <h3 className="font-extrabold text-base sm:text-lg text-slate-900">
-                    {lang === 'en'
-                      ? 'Pick Your Team Card (A, B, C, or D)'
-                      : 'เลือกแผ่นป้ายคำตอบของทีม (A, B, C หรือ D)'}
-                  </h3>
+                  <div>
+                    <span className="text-sm font-extrabold uppercase text-kku-terracotta">
+                      Step 3 of 4 • 4S Application Case (Significant • Same • Specific Choice • Simultaneous)
+                    </span>
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-1">
+                      {currentModule.applicationCase.title[lang]}
+                    </h2>
+                    <p className="text-sm sm:text-base text-slate-700 mt-2 leading-relaxed whitespace-pre-line">
+                      {currentModule.applicationCase.scenario[lang]}
+                    </p>
+                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* Optional Weekly Case Figure / Diagram Image (Tap to Zoom on iPad) */}
+                  {currentModule.applicationCase.imageUrl && (
+                    <div className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 p-3 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setZoomedCaseImage({
+                            url: currentModule.applicationCase.imageUrl,
+                            title: currentModule.applicationCase.title[lang]
+                          })
+                        }
+                        className="block w-full group relative cursor-zoom-in"
+                      >
+                        <img
+                          src={currentModule.applicationCase.imageUrl}
+                          alt={currentModule.applicationCase.title[lang]}
+                          className="max-h-[420px] w-auto mx-auto rounded-xl object-contain transition group-hover:scale-[1.01]"
+                        />
+                        <span className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/85 text-amber-300 text-xs font-extrabold shadow">
+                          🔍 {lang === 'en' ? 'Tap image to zoom full-screen on iPad' : 'แตะที่รูปภาพเพื่อขยายเต็มจอ (สำหรับดูตาราง/กราฟบน iPad)'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Optional Reference / Google Colab / Dataset Button */}
+                  {currentModule.applicationCase.referenceUrl && (
+                    <div>
+                      <a
+                        href={currentModule.applicationCase.referenceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 font-extrabold text-xs shadow-sm transition"
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        {lang === 'en'
+                          ? 'Open Weekly Case Dataset / Google Colab Notebook ↗'
+                          : 'เปิดดูข้อมูลประกอบโจทย์ / Google Colab ประจำสัปดาห์นี้ ↗'}
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {currentModule.applicationCase.showMap !== false &&
+                  Array.isArray(currentModule.applicationCase.spatialZones) &&
+                  currentModule.applicationCase.spatialZones.length > 0 && (
+                    <GeoAIMap
+                      zones={currentModule.applicationCase.spatialZones}
+                      lang={lang}
+                      activeZoneId={activeZoneId}
+                      onSelectZone={setActiveZoneId}
+                    />
+                  )}
+
+                {/* Team Leader Specific Choice Card Selection */}
+                <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-extrabold text-base sm:text-lg text-slate-900">
+                      {lang === 'en'
+                        ? `Team ${currentTeam.name.split(':')[0]} Decision Card (A, B, C, or D)`
+                        : `เลือกแผ่นป้ายคำตอบของ ${currentTeam.thName.split(':')[0]} (A, B, C หรือ D)`}
+                    </h3>
+                    <span className="text-xs font-bold text-slate-500">
+                      {isCurrentUserTeamRep
+                        ? lang === 'en'
+                          ? '👑 Tap a card below to lock your team choice'
+                          : '👑 คลิกเลือกป้ายคำตอบด้านล่างให้ทีมของคุณ'
+                        : lang === 'en'
+                        ? `🔒 Synced live with Team Leader (${currentTeamRepObj?.name})`
+                        : `🔒 ซิงค์ตามที่หัวหน้ากลุ่ม (${currentTeamRepObj?.name}) เลือกแบบเรียลไทม์`}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
                     {currentModule.applicationCase.specificChoices.map((ch) => {
                       const selected = teamCaseChoice === ch.id;
                       const letter = ch.id.replace('choice-', '');
@@ -1792,16 +2037,29 @@ export default function App() {
                         <button
                           key={ch.id}
                           type="button"
+                          disabled={!isCurrentUserTeamRep}
                           onClick={() => {
+                            if (!isCurrentUserTeamRep) return;
                             setTeamCaseChoiceByMod((prev) => {
+                              const curModMap =
+                                prev[currentModule.id] &&
+                                typeof prev[currentModule.id] === 'object'
+                                  ? prev[currentModule.id]
+                                  : {};
+                              const nextModMap = {
+                                ...curModMap,
+                                [currentTeam.id]: ch.id
+                              };
                               const next = {
                                 ...prev,
-                                [currentModule.id]: ch.id
+                                [currentModule.id]: nextModMap
                               };
                               pushToServer(
                                 {
                                   teamCaseChoiceByMod: {
-                                    [currentModule.id]: ch.id
+                                    [currentModule.id]: {
+                                      [currentTeam.id]: ch.id
+                                    }
                                   }
                                 },
                                 'merge'
@@ -1809,17 +2067,19 @@ export default function App() {
                               return next;
                             });
                           }}
-                          className={`p-5 rounded-2xl border text-left transition flex items-start gap-3.5 ${
+                          className={`p-5 rounded-2xl border-2 text-left transition-all flex items-start gap-3.5 ${
                             selected
-                              ? 'bg-kku-light border-kku-terracotta ring-2 ring-kku-terracotta/25'
-                              : 'bg-slate-50 hover:bg-white border-slate-200'
+                              ? 'bg-kku-light border-kku-terracotta ring-4 ring-kku-terracotta/15 shadow-sm'
+                              : isCurrentUserTeamRep
+                              ? 'bg-slate-50 hover:bg-white border-slate-200 hover:border-slate-300 cursor-pointer'
+                              : 'bg-slate-50/70 border-slate-200 opacity-80 cursor-not-allowed'
                           }`}
                         >
                           <div
-                            className={`w-11 h-11 rounded-xl font-extrabold text-lg flex items-center justify-center shrink-0 ${
+                            className={`w-11 h-11 rounded-xl font-extrabold text-lg flex items-center justify-center shrink-0 shadow-sm ${
                               selected
                                 ? 'bg-kku-terracotta text-white'
-                                : 'bg-slate-200 text-slate-800'
+                                : 'bg-white border border-slate-300 text-slate-800'
                             }`}
                           >
                             {letter}
@@ -1837,19 +2097,313 @@ export default function App() {
                     })}
                   </div>
 
-                  <div className="flex items-center justify-between pt-2">
-                    <div className="text-xs font-bold text-slate-600">
-                      {lang === 'en' ? 'Selected Team Placard:' : 'ป้ายที่เลือก:'}{' '}
-                      <strong className="text-kku-terracotta">
-                        Card {teamCaseChoice.replace('choice-', '')}
-                      </strong>
+                  {/* Required 1-Line Team Justification ("Explain This" Habit) */}
+                  <div className="pt-3 border-t border-slate-200 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="text-xs sm:text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[11px]">
+                          Explain This
+                        </span>
+                        {lang === 'en'
+                          ? 'One-Line Team Justification (Required before locking your card)'
+                          : 'เหตุผลสั้นๆ 1 บรรทัดของกลุ่ม (อธิบายว่าทำไมทีมจึงเลือกป้ายนี้ เพื่อใช้ดีเบตข้ามกลุ่ม)'}
+                      </label>
+                      {teamCaseChoice && teamCaseRationale.trim() && (
+                        <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-200">
+                          {lang === 'en'
+                            ? `✓ Card ${teamCaseChoice.replace('choice-', '')} + Reason Locked`
+                            : `✓ บันทึกป้าย ${teamCaseChoice.replace('choice-', '')} และเหตุผลของทีมแล้ว`}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2.5">
+                      <input
+                        type="text"
+                        disabled={!isCurrentUserTeamRep}
+                        value={teamCaseRationale}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTeamCaseRationaleByMod((prev) => {
+                            const curMod =
+                              prev[currentModule.id] && typeof prev[currentModule.id] === 'object'
+                                ? prev[currentModule.id]
+                                : {};
+                            const nextMod = { ...curMod, [currentTeam.id]: val };
+                            return { ...prev, [currentModule.id]: nextMod };
+                          });
+                        }}
+                        onBlur={() => {
+                          if (!isCurrentUserTeamRep) return;
+                          pushToServer(
+                            {
+                              teamCaseRationaleByMod: {
+                                [currentModule.id]: {
+                                  [currentTeam.id]: teamCaseRationale
+                                }
+                              }
+                            },
+                            'merge'
+                          );
+                        }}
+                        placeholder={
+                          lang === 'en'
+                            ? 'e.g., Card B prevents spatial autocorrelation leakage while keeping SAR all-weather coverage...'
+                            : 'พิมพ์เหตุผลสำคัญ 1 บรรทัดของกลุ่ม เช่น เลือกป้ายนี้เพราะแก้ปัญหาเมฆบังด้วย SAR และป้องกัน Spatial Leakage...'
+                        }
+                        className="flex-1 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-kku-terracotta disabled:opacity-75"
+                      />
+                      {isCurrentUserTeamRep && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            pushToServer(
+                              {
+                                teamCaseChoiceByMod: {
+                                  [currentModule.id]: {
+                                    [currentTeam.id]: teamCaseChoice
+                                  }
+                                },
+                                teamCaseRationaleByMod: {
+                                  [currentModule.id]: {
+                                    [currentTeam.id]: teamCaseRationale
+                                  }
+                                }
+                              },
+                              'merge'
+                            );
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-kku-terracotta hover:bg-kku-dark text-white font-extrabold text-xs shrink-0 shadow-sm transition"
+                        >
+                          {lang === 'en' ? 'Save Team Reason ✓' : 'บันทึกเหตุผลของกลุ่ม ✓'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* SIMULTANEOUS CROSS-TEAM REVEAL & WHOLE-CLASS DISCUSSION BOARD (BEFORE PEER EVAL) */}
+                <div className="bg-slate-900 text-white rounded-3xl p-6 border border-slate-800 shadow-lg space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-extrabold uppercase tracking-wider text-amber-400">
+                        {lang === 'en'
+                          ? '4th S: Simultaneous Report & Cross-Team Discussion'
+                          : 'หลัก 4S ข้อที่ 4: เปิดป้ายพร้อมกันและอภิปรายข้ามกลุ่มทั้งชั้นเรียน'}
+                      </span>
+                      <h3 className="text-lg font-extrabold text-white mt-0.5">
+                        {simultaneousReveal
+                          ? lang === 'en'
+                            ? 'All Team Cards Revealed! Discuss & Defend Across Teams'
+                            : 'เปิดป้ายครบทุกกลุ่มแล้ว! ร่วมอภิปรายเหตุผลระหว่างกลุ่มก่อนไปประเมินเพื่อน'
+                          : lang === 'en'
+                          ? 'Waiting for All Teams to Lock Cards Before Instructor Reveals'
+                          : 'รอทุกกลุ่มเลือกป้ายคำตอบ (อาจารย์จะกดเปิดป้ายพร้อมกันเพื่อเริ่มอภิปรายทั้งห้อง)'}
+                      </h3>
+                    </div>
+
+                    <span
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 ${
+                        simultaneousReveal
+                          ? 'bg-emerald-500/20 border border-emerald-400/30 text-emerald-300'
+                          : 'bg-slate-800 border border-slate-700 text-amber-300'
+                      }`}
+                    >
+                      {simultaneousReveal ? (
+                        <>
+                          <Eye className="w-4 h-4" />
+                          {lang === 'en' ? 'Cards Revealed Live' : 'เปิดป้ายพร้อมกันแล้ว'}
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-4 h-4" />
+                          {lang === 'en' ? 'Cards Hidden Until Reveal' : 'ซ่อนป้ายไว้จนกว่าจะเปิดพร้อมกัน'}
+                        </>
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Choice Distribution Bar (Shown Once Simultaneous Reveal is Triggered) */}
+                  {simultaneousReveal && (
+                    <div className="p-4 rounded-2xl bg-slate-950/75 border border-slate-800 space-y-2.5">
+                      <div className="text-xs font-extrabold uppercase tracking-wider text-amber-300">
+                        {lang === 'en'
+                          ? 'Class Choice Distribution (4S Simultaneous Report)'
+                          : 'สรุปจำนวนกลุ่มที่เลือกแต่ละป้าย (ใช้ตั้งประเด็นถกเถียงข้ามกลุ่ม)'}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {currentModule.applicationCase.specificChoices.map((ch) => {
+                          const letter = ch.id.replace('choice-', '');
+                          const pickedTeams = activeTeams.filter(
+                            (tm) =>
+                              modCaseChoices &&
+                              typeof modCaseChoices === 'object' &&
+                              modCaseChoices[tm.id] === ch.id
+                          );
+                          const pct =
+                            activeTeams.length > 0
+                              ? Math.round((pickedTeams.length / activeTeams.length) * 100)
+                              : 0;
+                          const isBest =
+                            revealExpertAnswer &&
+                            currentModule.applicationCase.recommendedChoice === ch.id;
+                          return (
+                            <div
+                              key={ch.id}
+                              className={`p-3 rounded-xl border ${
+                                isBest
+                                  ? 'bg-emerald-950/90 border-emerald-400 ring-2 ring-emerald-400/30'
+                                  : 'bg-slate-900 border-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between text-xs font-extrabold">
+                                <span className="text-amber-300">
+                                  Card {letter} {isBest ? '★ Best' : ''}
+                                </span>
+                                <span className="text-white">
+                                  {pickedTeams.length} {lang === 'en' ? 'teams' : 'กลุ่ม'} ({pct}%)
+                                </span>
+                              </div>
+                              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden mt-1.5">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    isBest ? 'bg-emerald-400' : 'bg-amber-400'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Grid of All Teams' Cards & 1-Line Justifications for Cross-Team Debate */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {activeTeams.map((tm) => {
+                      const isMyTeam = tm.id === currentTeam.id;
+                      const tmChoice =
+                        modCaseChoices && typeof modCaseChoices === 'object'
+                          ? modCaseChoices[tm.id]
+                          : null;
+                      const tmReason =
+                        teamCaseRationaleByMod[currentModule.id]?.[tm.id] || '';
+                      const letter = tmChoice ? tmChoice.replace('choice-', '') : null;
+
+                      return (
+                        <div
+                          key={tm.id}
+                          className={`p-4 rounded-2xl border text-left space-y-2.5 flex flex-col justify-between ${
+                            isMyTeam
+                              ? 'bg-kku-terracotta/25 border-amber-400'
+                              : 'bg-slate-800/90 border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-extrabold text-slate-200 truncate">
+                              {lang === 'en' ? tm.name.split(':')[0] : tm.thName.split(':')[0]}
+                              {isMyTeam && (
+                                <span className="ml-1 text-amber-300">
+                                  ({lang === 'en' ? 'You' : 'ทีมเรา'})
+                                </span>
+                              )}
+                            </div>
+
+                            {simultaneousReveal || isMyTeam ? (
+                              letter ? (
+                                <span className="py-1 px-3 rounded-xl bg-amber-400 text-slate-950 font-extrabold text-xs shadow">
+                                  Card {letter}
+                                </span>
+                              ) : (
+                                <span className="py-1 px-2.5 rounded-xl bg-slate-950/60 text-slate-400 font-bold text-[11px]">
+                                  {lang === 'en' ? 'Choosing...' : 'กำลังเลือก...'}
+                                </span>
+                              )
+                            ) : (
+                              <span className="py-1 px-2.5 rounded-xl bg-slate-950/80 text-slate-300 font-bold text-[11px] flex items-center gap-1">
+                                <Lock className="w-3 h-3 text-amber-400" />
+                                {tmChoice
+                                  ? lang === 'en'
+                                    ? 'Locked ✓'
+                                    : 'เลือกแล้ว ✓'
+                                  : lang === 'en'
+                                  ? 'Thinking...'
+                                  : 'กำลังปรึกษา...'}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Team's 1-Line Justification (Visible to own team or after Simultaneous Reveal) */}
+                          {(simultaneousReveal || isMyTeam) && (
+                            <div className="text-xs text-slate-200 bg-slate-950/60 p-2.5 rounded-xl border border-white/10 leading-relaxed">
+                              {tmReason.trim() ? (
+                                <>
+                                  <span className="text-amber-300 font-bold mr-1">
+                                    {lang === 'en' ? 'Reason:' : 'เหตุผล:'}
+                                  </span>
+                                  <span>“{tmReason}”</span>
+                                </>
+                              ) : (
+                                <span className="text-slate-400 italic">
+                                  {lang === 'en'
+                                    ? 'No 1-line justification entered yet.'
+                                    : 'ยังไม่ได้ระบุเหตุผล 1 บรรทัด'}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Expert / Best Answer Reveal Banner (When Instructor Releases Expert Choice After Debate) */}
+                  {simultaneousReveal && revealExpertAnswer && (
+                    <div className="p-4 rounded-2xl bg-emerald-950/90 border-2 border-emerald-400 text-emerald-100 space-y-1.5">
+                      <div className="text-xs font-extrabold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4" />
+                        {lang === 'en'
+                          ? 'Instructor Expert Synthesis & Recommended Decision'
+                          : 'เฉลยแนวทางที่เหมาะสมที่สุดโดยอาจารย์ผู้สอน (หลังจบการดีเบตข้ามกลุ่ม)'}
+                      </div>
+                      {(() => {
+                        const recId = currentModule.applicationCase.recommendedChoice;
+                        const recObj = currentModule.applicationCase.specificChoices.find(
+                          (c) => c.id === recId
+                        );
+                        const recLetter = recId ? recId.replace('choice-', '') : '?';
+                        return (
+                          <div>
+                            <div className="text-sm sm:text-base font-extrabold text-white">
+                              ★ Card {recLetter}: {recObj ? recObj.label[lang] : recId}
+                            </div>
+                            {recObj && (
+                              <p className="text-xs sm:text-sm text-emerald-200 mt-0.5 leading-relaxed">
+                                {recObj.summary[lang]}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Bottom Action to Advance to Step 4 Peer Evaluation After Class Discussion */}
+                  <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-xs text-slate-300">
+                      {lang === 'en'
+                        ? 'After the instructor reveals all cards and leads the cross-team discussion, continue to Step 4 (Peer Evaluation).'
+                        : 'เมื่ออาจารย์เปิดป้ายครบทุกกลุ่มและอภิปรายแลกเปลี่ยนเหตุผลระหว่างกลุ่มเสร็จแล้ว ให้กดไปขั้นตอนที่ 4 (ประเมินเพื่อน)'}
                     </div>
                     <button
                       type="button"
                       onClick={() => setActiveStep(4)}
-                      className="px-6 py-3 rounded-xl bg-kku-terracotta hover:bg-kku-dark text-white font-extrabold text-xs flex items-center gap-2"
+                      className="px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-2 shadow"
                     >
-                      {lang === 'en' ? 'Lock Card & Continue to Peer Eval' : 'ล็อกป้ายและไปประเมินเพื่อน'}
+                      {lang === 'en'
+                        ? 'Finish Discussion & Go to Step 4: Peer Eval'
+                        : 'จบการอภิปรายและไปขั้นตอนที่ 4: ประเมินเพื่อน'}
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
@@ -1884,17 +2438,37 @@ export default function App() {
                     </div>
 
                     <div className="p-6 sm:p-8 space-y-6">
-                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 inline-flex flex-wrap items-center justify-center gap-3 text-sm">
-                        <span className="font-extrabold text-slate-900">
-                          {activeStudent?.name}
-                        </span>
-                        <span className="font-mono text-kku-terracotta font-bold">
-                          ({activeStudent?.id})
-                        </span>
-                        <span className="text-slate-300">•</span>
-                        <span className="font-bold text-slate-700">
-                          {lang === 'en' ? currentTeam.name : currentTeam.thName}
-                        </span>
+                      {(stickersByMod[currentModule.id]?.[activeStudent?.id] || 0) > 0 && (
+                        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 border-2 border-amber-300 text-amber-950 inline-flex items-center gap-3 shadow-sm">
+                          <span className="text-2xl">🌟</span>
+                          <div className="text-left">
+                            <div className="text-xs font-extrabold uppercase tracking-wider text-amber-700">
+                              {lang === 'en'
+                                ? 'Class Discussion Sticker Award!'
+                                : 'ได้รับสติกเกอร์ดาวการอภิปรายในชั้นเรียน!'}
+                            </div>
+                            <div className="text-base font-extrabold">
+                              {lang === 'en'
+                                ? `You earned ${stickersByMod[currentModule.id]?.[activeStudent?.id]} Discussion Sticker(s) today!`
+                                : `วันนี้คุณได้รับสติกเกอร์ดาวการอภิปราย ${stickersByMod[currentModule.id]?.[activeStudent?.id]} ดวง!`}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 inline-flex flex-wrap items-center justify-center gap-3 text-sm">
+                          <span className="font-extrabold text-slate-900">
+                            {activeStudent?.name}
+                          </span>
+                          <span className="font-mono text-kku-terracotta font-bold">
+                            ({activeStudent?.id})
+                          </span>
+                          <span className="text-slate-300">•</span>
+                          <span className="font-bold text-slate-700">
+                            {lang === 'en' ? currentTeam.name : currentTeam.thName}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="flex flex-wrap items-center justify-center gap-3">
@@ -2079,6 +2653,40 @@ export default function App() {
           <span>iRAT • IF-AT Scratch tRAT • 4S Simultaneous Case • 0–10 Peer Rating</span>
         </div>
       </footer>
+
+      {/* FULL-SCREEN IPAD TAP-TO-ZOOM DIAGRAM / CONFUSION MATRIX LIGHTBOX MODAL */}
+      {zoomedCaseImage && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4"
+          onClick={() => setZoomedCaseImage(null)}
+        >
+          <div
+            className="max-w-6xl w-full flex items-center justify-between text-white mb-3 px-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-extrabold text-sm sm:text-base text-amber-300 truncate">
+              {zoomedCaseImage.title}
+            </div>
+            <button
+              type="button"
+              onClick={() => setZoomedCaseImage(null)}
+              className="px-3.5 py-1.5 rounded-xl bg-white/15 hover:bg-rose-500/80 text-white font-extrabold text-xs transition"
+            >
+              {lang === 'en' ? '✕ Close Zoom' : '✕ ปิดภาพขยาย'}
+            </button>
+          </div>
+          <div
+            className="max-w-6xl max-h-[84vh] w-full overflow-auto rounded-2xl bg-slate-900 border border-white/15 p-3 flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={zoomedCaseImage.url}
+              alt={zoomedCaseImage.title}
+              className="max-w-full max-h-[80vh] w-auto h-auto object-contain rounded-xl"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

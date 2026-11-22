@@ -63,8 +63,13 @@ export default function InstructorPortal({
   tratTotalSummary,
   teamCaseChoiceByMod,
   teamCaseRationaleByMod,
+  stickersByMod = {},
+  onAdjustStudentSticker,
+  formatLast4Id,
   simultaneousReveal,
   onToggleSimultaneousReveal,
+  revealExpertAnswer = false,
+  onToggleRevealExpertAnswer,
   unlockedSteps,
   onSetUnlockedSteps,
   onClearAllSessionData,
@@ -386,6 +391,7 @@ export default function InstructorPortal({
     const weightedIrat = (iratPct * iratWeightPct) / 100;
     const weightedTrat = ((tratPct * tratWeightPct) / 100) * peerFactor;
     const finalWeekScore = Math.round((weightedIrat + weightedTrat) * 10) / 10;
+    const stickersCount = Number(stickersByMod?.[modObj.id]?.[studentId]) || 0;
 
     return {
       team: tm,
@@ -396,6 +402,7 @@ export default function InstructorPortal({
       tratPct,
       peer,
       peerAvg10,
+      stickersCount,
       finalWeekScore
     };
   };
@@ -407,6 +414,7 @@ export default function InstructorPortal({
     let tratSum = 0;
     let peerSum = 0;
     let peerRatedWeeks = 0;
+    let totalStickers = 0;
     let finalScoreSum = 0;
     const perWeek = modules.map((mod) => {
       const wk = computeStudentWeekBreakdown(mod, studentId);
@@ -419,6 +427,7 @@ export default function InstructorPortal({
         peerSum += wk.peer.avgStars;
         peerRatedWeeks += 1;
       }
+      totalStickers += wk?.stickersCount || 0;
       finalScoreSum += wk?.finalWeekScore || 0;
       return {
         moduleId: mod.id,
@@ -439,10 +448,13 @@ export default function InstructorPortal({
     const tblScoreOutOf10 = Math.round((semesterFinalPct / 10) * 100) / 100;
 
     // 2. จิตพิสัย / Affective & Teamwork (10% of course = 10 pts):
-    // Combines weekly TBL Attendance ratio (5 pts) + Peer Evaluation average out of 10 (5 pts), or direct Peer Eval / 10 * Attendance
+    // Combines weekly TBL Attendance ratio (4 pts) + Peer Evaluation average out of 10 (4 pts) + Discussion Stickers (0.5 pt per sticker, up to +2 pts, capped at 10)
     const attendanceRatio = attendedWeeks / totalWeeks;
-    const affectiveScoreOutOf10 =
-      Math.round((attendanceRatio * 5 + (avgPeer10 / 10) * 5) * 100) / 100;
+    const stickerBonusPts = Math.min(2, totalStickers * 0.5);
+    const affectiveScoreOutOf10 = Math.min(
+      10,
+      Math.round((attendanceRatio * 4 + (avgPeer10 / 10) * 4 + stickerBonusPts) * 100) / 100
+    );
     const combinedCourse20Pts =
       Math.round((tblScoreOutOf10 + affectiveScoreOutOf10) * 100) / 100;
 
@@ -452,6 +464,7 @@ export default function InstructorPortal({
       avgIratPct,
       avgTratPct,
       avgPeer10,
+      totalStickers,
       semesterFinalPct,
       tblScoreOutOf10,
       affectiveScoreOutOf10,
@@ -477,15 +490,21 @@ export default function InstructorPortal({
       'Peer_Eval_Submitted_Own',
       `Final_Weighted_Score_Pct_(iRAT_${iratWeightPct}%_tRAT_${tratWeightPct}%)`,
       'Peer_Eval_Feedback_Notes',
-      'Team_4S_Card'
+      'Discussion_Stickers_Count',
+      'Team_4S_Card',
+      'Team_4S_Justification'
     ];
 
     const rows = roster.map((st) => {
       const wk = computeStudentWeekBreakdown(currentModule, st.id);
-      const card = (teamCaseChoiceByMod[currentModule.id] || 'choice-B').replace(
-        'choice-',
-        'Card '
-      );
+      const modChoices = teamCaseChoiceByMod[currentModule.id];
+      const rawCard =
+        (modChoices && typeof modChoices === 'object' && wk.team
+          ? modChoices[wk.team.id]
+          : null) || '-';
+      const card = rawCard.replace('choice-', 'Card ');
+      const teamReason =
+        (wk.team && teamCaseRationaleByMod?.[currentModule.id]?.[wk.team.id]) || '';
 
       return [
         classInfo.courseCode,
@@ -505,7 +524,9 @@ export default function InstructorPortal({
         wk.peer?.hasSubmittedOwn ? 'Submitted' : 'Pending',
         `${wk.finalWeekScore}%`,
         `"${(wk.peer?.notes || []).join(' | ')}"`,
-        wk.team ? card : '-'
+        wk.stickersCount || 0,
+        wk.team ? card : '-',
+        `"${String(teamReason).replace(/"/g, '""')}"`
       ];
     });
 
@@ -957,8 +978,104 @@ export default function InstructorPortal({
                     </>
                   )}
                 </button>
+
+                {simultaneousReveal && onToggleRevealExpertAnswer && (
+                  <button
+                    type="button"
+                    onClick={onToggleRevealExpertAnswer}
+                    className={`px-3.5 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1.5 shadow-sm transition border ${
+                      revealExpertAnswer
+                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    {revealExpertAnswer
+                      ? lang === 'en'
+                        ? '★ Expert Choice Shown'
+                        : '★ เฉลยป้ายที่ดีที่สุดแล้ว'
+                      : lang === 'en'
+                      ? 'Reveal Expert Answer ★'
+                      : 'เฉลยป้ายที่ดีที่สุด ★'}
+                  </button>
+                )}
               </div>
             </div>
+
+            {/* PROJECTOR-FRIENDLY 4S CHOICE DISTRIBUTION & DEBATE SUMMARY BAR (WHEN REVEALED) */}
+            {simultaneousReveal && currentModule?.applicationCase?.specificChoices && (
+              <div className="bg-slate-900 text-white rounded-3xl p-5 border border-slate-800 shadow-lg space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400">
+                      {lang === 'en'
+                        ? '4S Simultaneous Report • Projector Distribution View'
+                        : 'สรุปผลการชูป้าย 4S พร้อมกัน • สำหรับฉายโปรเจกเตอร์เพื่อตั้งประเด็นอภิปรายข้ามกลุ่ม'}
+                    </span>
+                    <h3 className="text-sm sm:text-base font-extrabold text-white">
+                      {currentModule.applicationCase.title[lang]}
+                    </h3>
+                  </div>
+                  <span className="text-xs font-bold text-slate-300">
+                    {
+                      teams.filter(
+                        (tm) =>
+                          teamCaseChoiceByMod?.[currentModule.id] &&
+                          teamCaseChoiceByMod[currentModule.id][tm.id]
+                      ).length
+                    }{' '}
+                    / {teams.length} {lang === 'en' ? 'Teams Locked' : 'กลุ่มที่เลือกป้ายแล้ว'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {currentModule.applicationCase.specificChoices.map((ch) => {
+                    const letter = ch.id.replace('choice-', '');
+                    const pickedTeams = teams.filter(
+                      (tm) => teamCaseChoiceByMod?.[currentModule.id]?.[tm.id] === ch.id
+                    );
+                    const pct =
+                      teams.length > 0
+                        ? Math.round((pickedTeams.length / teams.length) * 100)
+                        : 0;
+                    const isBest =
+                      revealExpertAnswer &&
+                      currentModule.applicationCase.recommendedChoice === ch.id;
+
+                    return (
+                      <div
+                        key={ch.id}
+                        className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                          isBest
+                            ? 'bg-emerald-950/90 border-emerald-400 ring-2 ring-emerald-400/30'
+                            : 'bg-slate-950/70 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-xs font-extrabold">
+                          <span className="text-amber-300">
+                            Card {letter} {isBest ? '★ Best' : ''}
+                          </span>
+                          <span className="text-white">
+                            {pickedTeams.length} {lang === 'en' ? 'teams' : 'กลุ่ม'} ({pct}%)
+                          </span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              isBest ? 'bg-emerald-400' : 'bg-amber-400'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <div className="text-[11px] text-slate-300 truncate" title={ch.label[lang]}>
+                          {ch.label[lang]}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Unified Team Cards (4 Columns on Large Screens) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -970,12 +1087,12 @@ export default function InstructorPortal({
                   : tratTotalSummary;
                 const liveTrat =
                   teamTratSummary.resolvedCount > 0 ? teamTratSummary.pct : tm.mockTratScore;
+                const modChoices = teamCaseChoiceByMod[currentModule.id];
                 const chosenCard =
-                  idx === 0
-                    ? teamCaseChoiceByMod[currentModule.id] || 'choice-B'
-                    : currentModule.applicationCase.otherTeamsResponses?.[idx - 1]?.choiceId ||
-                      'choice-B';
-                const cardLetter = chosenCard.replace('choice-', '');
+                  modChoices && typeof modChoices === 'object'
+                    ? modChoices[tm.id] || null
+                    : null;
+                const cardLetter = chosenCard ? chosenCard.replace('choice-', '') : null;
 
                 return (
                   <div
@@ -1009,29 +1126,78 @@ export default function InstructorPortal({
                             const isLeader = m.id === leaderId;
                             const irat = getStudentIratScore(m.id);
                             const peer = getStudentPeerScore ? getStudentPeerScore(m.id) : null;
+                            const stickerCnt =
+                              Number(stickersByMod?.[currentModule.id]?.[m.id]) || 0;
+                            const shortId4 = formatLast4Id
+                              ? formatLast4Id(m.id)
+                              : m.id.slice(-5);
+
                             return (
                               <div
                                 key={m.id}
                                 onClick={() => onSetTeamRep(currentModule.id, tm.id, m.id)}
-                                className={`px-3 py-2 rounded-xl border cursor-pointer transition flex items-center justify-between text-xs ${
+                                className={`px-3 py-2 rounded-xl border cursor-pointer transition flex items-center justify-between gap-1.5 text-xs ${
                                   isLeader
                                     ? 'bg-amber-400/20 border-amber-400 text-white shadow-sm'
                                     : 'bg-slate-800/80 border-slate-700/80 text-slate-300 hover:bg-slate-800'
                                 }`}
-                                title="Click to set as Team Leader"
+                                title="Click name to set as Team Leader"
                               >
-                                <div className="truncate flex items-center gap-1.5">
+                                <div className="truncate flex items-center gap-1.5 min-w-0">
                                   {isLeader && (
                                     <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                                   )}
                                   <span className="font-bold truncate">{m.name}</span>
                                 </div>
-                                <span className="font-mono text-[10px] text-slate-300 shrink-0 ml-1">
-                                  {irat?.submitted ? `iRAT ${irat.pct}%` : m.id.slice(-4)}
-                                  {peer?.avgStars !== null && peer?.avgStars !== undefined
-                                    ? ` • ★${peer.avgStars}`
-                                    : ''}
-                                </span>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="font-mono text-[11px] text-slate-300">
+                                    {irat?.submitted ? `iRAT ${irat.pct}%` : shortId4}
+                                    {peer?.avgStars !== null && peer?.avgStars !== undefined
+                                      ? ` • ★${peer.avgStars}`
+                                      : ''}
+                                  </span>
+
+                                  {/* Digital Discussion Sticker Button (+1 on click, right-click or minus to reduce) */}
+                                  {onAdjustStudentSticker && (
+                                    <div
+                                      className="inline-flex items-center rounded-lg overflow-hidden border border-amber-400/40 bg-slate-950/70"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {stickerCnt > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            onAdjustStudentSticker(currentModule.id, m.id, -1)
+                                          }
+                                          className="px-1.5 py-0.5 text-[10px] font-extrabold text-slate-400 hover:text-rose-300 hover:bg-rose-500/20 transition"
+                                          title="Remove 1 sticker"
+                                        >
+                                          -
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onAdjustStudentSticker(currentModule.id, m.id, 1)
+                                        }
+                                        className={`px-2 py-0.5 text-[11px] font-extrabold flex items-center gap-0.5 transition ${
+                                          stickerCnt > 0
+                                            ? 'bg-amber-400 text-slate-950'
+                                            : 'text-amber-300 hover:bg-amber-400/20'
+                                        }`}
+                                        title={
+                                          lang === 'en'
+                                            ? 'Award +1 Discussion Sticker'
+                                            : 'คลิกเพื่อให้สติกเกอร์ดาวการอภิปราย +1 ดวง'
+                                        }
+                                      >
+                                        <span>🌟</span>
+                                        <span>{stickerCnt > 0 ? stickerCnt : '+'}</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
@@ -1039,19 +1205,49 @@ export default function InstructorPortal({
                       )}
                     </div>
 
-                    <div className="pt-3 border-t border-white/10 flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-400">
-                        {lang === 'en' ? '4S Case Card:' : 'ป้ายคำตอบ 4S:'}
-                      </span>
-                      {!simultaneousReveal ? (
-                        <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 text-xs font-bold flex items-center gap-1.5">
-                          <Lock className="w-3 h-3 text-amber-400" /> Hidden
+                    <div className="pt-3 border-t border-white/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-400">
+                          {lang === 'en' ? '4S Case Card:' : 'ป้ายคำตอบ 4S:'}
                         </span>
-                      ) : (
-                        <span className="px-3.5 py-1 rounded-xl bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 font-extrabold text-sm shadow">
-                          Card {cardLetter}
-                        </span>
-                      )}
+                        {!simultaneousReveal ? (
+                          <span
+                            className={`px-3 py-1 rounded-xl border text-xs font-bold flex items-center gap-1.5 ${
+                              cardLetter
+                                ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300'
+                                : 'bg-slate-800 border-slate-700 text-slate-400'
+                            }`}
+                          >
+                            <Lock className="w-3 h-3 text-amber-400" />
+                            {cardLetter
+                              ? lang === 'en'
+                                ? 'Locked ✓ (Hidden)'
+                                : 'เลือกป้ายแล้ว ✓'
+                              : lang === 'en'
+                              ? 'Waiting...'
+                              : 'รอเลือกป้าย...'}
+                          </span>
+                        ) : cardLetter ? (
+                          <span className="px-3.5 py-1 rounded-xl bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 font-extrabold text-sm shadow">
+                            Card {cardLetter}
+                          </span>
+                        ) : (
+                          <span className="px-3 py-1 rounded-xl bg-slate-800 text-slate-400 text-xs font-bold">
+                            {lang === 'en' ? 'No Card Picked' : 'ยังไม่เลือกป้าย'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Show Team's 1-Line Justification on Instructor Projector Once Revealed */}
+                      {simultaneousReveal &&
+                        teamCaseRationaleByMod?.[currentModule.id]?.[tm.id] && (
+                          <div className="p-2.5 rounded-xl bg-slate-950/75 border border-white/10 text-[11px] text-slate-200 leading-relaxed">
+                            <span className="text-amber-300 font-bold mr-1">
+                              {lang === 'en' ? 'Why:' : 'เหตุผล:'}
+                            </span>
+                            “{teamCaseRationaleByMod[currentModule.id][tm.id]}”
+                          </div>
+                        )}
                     </div>
                   </div>
                 );
@@ -1229,6 +1425,9 @@ export default function InstructorPortal({
                         <th className="py-3 px-3 font-bold">iRAT ({iratWeightPct}%)</th>
                         <th className="py-3 px-3 font-bold">Team tRAT ({tratWeightPct}%)</th>
                         <th className="py-3 px-3 font-bold">Peer Eval (0–10)</th>
+                        <th className="py-3 px-3 font-bold">
+                          {lang === 'en' ? 'Stickers 🌟' : 'ดาวอภิปราย 🌟'}
+                        </th>
                         <th className="py-3 px-3 font-bold bg-emerald-950 text-amber-300">
                           {lang === 'en' ? 'Week WeightedTotal' : 'คะแนนสุทธิสัปดาห์นี้'}
                         </th>
@@ -1315,6 +1514,38 @@ export default function InstructorPortal({
                                         : 'ส่งผลแล้ว ✓'
                                       : 'Pending'}
                                   </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                {onAdjustStudentSticker ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    {wk.stickersCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onAdjustStudentSticker(currentModule.id, st.id, -1)
+                                        }
+                                        className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 font-extrabold text-xs"
+                                      >
+                                        -
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onAdjustStudentSticker(currentModule.id, st.id, 1)
+                                      }
+                                      className={`px-2.5 py-1 rounded-lg font-extrabold text-xs flex items-center gap-1 ${
+                                        wk.stickersCount > 0
+                                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                          : 'bg-slate-100 hover:bg-amber-50 text-slate-500'
+                                      }`}
+                                    >
+                                      🌟 {wk.stickersCount > 0 ? `x${wk.stickersCount}` : '+1'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span>{wk.stickersCount || 0}</span>
                                 )}
                               </td>
                               <td className="py-2.5 px-3 font-mono font-extrabold text-emerald-700 bg-emerald-50/50">
@@ -1426,6 +1657,9 @@ export default function InstructorPortal({
                           </th>
                         ))}
                         <th className="py-3 px-3 font-bold">Avg Peer (★)</th>
+                        <th className="py-3 px-3 font-bold">
+                          {lang === 'en' ? 'Total Stickers 🌟' : 'รวมดาวอภิปราย 🌟'}
+                        </th>
                         <th className="py-3 px-3 font-bold bg-amber-950 text-amber-300">
                           {lang === 'en' ? 'จิตพิสัย (10 pts)' : 'จิตพิสัย (เต็ม 10)'}
                         </th>
@@ -1466,6 +1700,9 @@ export default function InstructorPortal({
                             ))}
                             <td className="py-2.5 px-3 font-bold text-amber-600">
                               ★ {sem.avgPeer10} / 10
+                            </td>
+                            <td className="py-2.5 px-3 font-extrabold text-amber-700">
+                              {sem.totalStickers > 0 ? `🌟 x${sem.totalStickers}` : '-'}
                             </td>
                             <td className="py-2.5 px-3 font-mono font-extrabold text-amber-800 bg-amber-50/70">
                               {sem.affectiveScoreOutOf10} / 10
